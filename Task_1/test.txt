@@ -1,8 +1,15 @@
 .IPPcode22
 DEFVAR GF@counter
+DEFVAR GF@haha
+DEFVAR GF@counter
+DEFVAR
+DEFVAR GF@a GF@b
+DEFVAR GF@b #haha
 MOVE GF@counter string@ #Inicializace proměnné na prázdný řetězec
 #Jednoduchá iterace , dokud nebude splněna zadaná podmínka
 LABEL while
+
+haha
 JUMPIFEQ end GF@counter string@aaa
 WRITE string@Proměnná \032 GF@counter \032 obsahuje \032
 WRITE GF@counter
