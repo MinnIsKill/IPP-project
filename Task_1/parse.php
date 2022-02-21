@@ -24,6 +24,8 @@
     therefore should be erased and carried on into interpreter.
 **/
 
+ini_set('display_errors', 'stderr'); //to print warning to stderr
+
 enum ErrHandles: int {
     case ParamErr    = 10; // chybejici parametr skriptu (je-li treba) nebo pouziti zakazané kombinace parametru
     case InFilesErr  = 11; // chyba pri otevirani vstupnich souboru (napr. neexistence, nedostatecne opravneni)
@@ -81,26 +83,152 @@ enum Opcodes {
 }
 
 class _general {
+    public static $instr_cnt = 1;
+    //public static $line_num = 1;
+
+    /**
+     * 
+    **/
     public static function basic_comment_check($word){
         if ($word[0] == "#") { echo "Found a comment. Skipping it\n"; return true; }
         else { return false; }
     }
 
+    /**
+     * 
+    **/
     public static function basic_emptyline_check($line){
         if ($line == NULL) { echo "Found an empty line.\n"; return true; }
         else { return false; }
     }
 
-    // true if everything's fine, false if something goes wrong
+    /** checks whether number of operands received equals the amount required for given opcode
+     *  @return: true if everything's fine, false if something goes wrong 
+    **/
     public static function basic_operands_check($line, $received_cnt, $desired_cnt){
         $result = true;
-        echo "* \$received_cnt: $received_cnt\n* \$desired_cnt: $desired_cnt\n";
         if ($received_cnt < $desired_cnt) {
-            echo "ERROR: missing arguments for DEFVAR\n";
+            $result = false;
         } else if ($received_cnt > $desired_cnt) {
             $result = _general::basic_comment_check($line[$desired_cnt]);
         }
-        return $result;
+
+        if ($result == false){
+            fputs(STDERR,"! basic_operands_check returned ERROR for line:  ");
+            foreach ($line as $word){
+                fputs(STDERR,"$word ");
+            }
+            fputs(STDERR,"\n");
+            //exit (error code);
+        }
+    }
+
+    /** 
+     * 
+    **/
+    public static function basic_argtype_check($word){
+        $type = "";
+        if (($pre = mb_substr($word, 0, 3)) == "GF@" || $pre == "LF@" || $pre == "TF@"){
+            $type = "var";
+        } else if (($pre = mb_substr($word, 0, 4)) == "int@"){
+            $type = "int";
+        } else if ($pre == "nil@"){
+            $type = "nil";
+        } else if (($pre = mb_substr($word, 0, 5)) == "bool@"){
+            $type = "bool";
+        } else if (($pre = mb_substr($word, 0, 7)) == "string@"){
+            $type = "string";
+        }
+
+        if ($type == ""){ //if not matched yet
+            if (($pre = mb_substr($word, 0, 3)) == "int" || $pre == "nil" || ($pre = mb_substr($word, 0, 4)) == "bool" ||
+            ($pre = mb_substr($word, 0, 6)) == "string") {
+                $type = "type";
+            } else {
+                $type = "label";
+            }
+        }
+
+        return $type;
+    }
+
+    /** Ran after every opcode match. Handles initial prints and checks
+     *  @var instr_cnt:   globally kept instruction ID
+     *  @var str:         name of opcode to handle
+     *  @var line:        line of code to handle
+     *  @var desired_cnt: number of required opcode arguments
+    **/
+    public static function opcode_start($str, $line, $desired_cnt){
+        $cnt = _general::$instr_cnt;
+        fputs(STDOUT,"<instruction order=\"$cnt\" opcode=\"$str\">\n");
+        _general::$instr_cnt++;
+        _general::basic_operands_check($line, count($line), $desired_cnt);
+    }
+
+    /** 
+     *   PRINT FUNCTION FOR <var>
+    **/
+    public static function create_var_print($num, $word){
+        if (($type = _general::basic_argtype_check($word)) != "var"){
+            fputs(STDOUT,"ERROR: passing an unknown or invalid opcode argument where \"var\" is required\n");
+            //exit (error code);
+        }
+        for ($i = $num; $i > 0; $i--){ fputs(STDOUT,"    "); }
+        $word_modif = mb_substr($word, 0, NULL);
+        fputs(STDOUT,"<arg$num type=\"$type\">$word_modif</arg$num>\n");
+    }
+
+    /** 
+     *   PRINT FUNCTION FOR <symbol>
+    **/
+    public static function create_symb_print($num, $word){
+        if (($type = _general::basic_argtype_check($word)) == "type" || $type == "label"){
+            fputs(STDOUT,"ERROR: passing an unknown or invalid opcode argument where \"symbol\" is required\n");
+            //exit (error code);
+        }
+        for ($i = $num; $i > 0; $i--){ fputs(STDOUT,"    "); }
+        if ($type == "var") {
+            fputs(STDOUT,"<arg$num type=\"$type\">$word</arg$num>\n");
+        } else if ($type == "string") {
+            _general::create_string_print($num, $word);
+        } else {
+            $length = strlen($type)+1;
+            $word_modif = mb_substr($word, $length, NULL);
+            fputs(STDOUT,"<arg$num type=\"$type\">$word_modif</arg$num>\n");
+        }
+    }
+
+    /** 
+     *   PRINT FUNCTION FOR <label>
+    **/
+    public static function create_label_print($num, $word){
+        if (($type = _general::basic_argtype_check($word)) != "label"){
+            fputs(STDOUT,"ERROR: passing an unknown or invalid opcode argument where \"label\" is required\n");
+            //exit (error code);
+        }
+        for ($i = $num; $i > 0; $i--){ fputs(STDOUT,"    "); }
+        fputs(STDOUT,"<arg$num type=\"$type\">$word</arg$num>\n");
+    }
+
+    /** 
+     *   PRINT FUNCTION FOR <type>
+    **/
+    public static function create_type_print($num, $word){
+        if (($type = _general::basic_argtype_check($word)) != "type"){
+            fputs(STDOUT,"ERROR: passing an unknown or invalid opcode argument where \"type\" is required\n");
+            //exit (error code);
+        }
+        for ($i = $num; $i > 0; $i--){ fputs(STDOUT,"    "); }
+        fputs(STDOUT,"<arg$num type=\"$type\">$word</arg$num>\n");
+    }
+
+    /**
+     *   PRINT FUNCTION FOR STRINGS
+    **/
+    public static function create_string_print($num, $word){
+        $string = "TODO\\032string\\032handling";
+        //$string = TODO: string handling
+        fputs(STDOUT,"<arg$num type = \"string\">$string</arg$num>\n");
     }
 }
 
@@ -151,6 +279,10 @@ class _var {
         $this->value = $value;
     }
 
+    function set_frame($frame) {
+        $this->frame = $frame;
+    }
+
     function get_name() {
         return $this->name;
     }
@@ -161,6 +293,10 @@ class _var {
 
     function get_value() {
         return $this->value;
+    }
+
+    function get_frame() {
+        return $this->frame;
     }
 }
 
@@ -174,19 +310,19 @@ $OpcodesEnumReflection = new ReflectionEnum(Opcodes::class);
 
 $PreambleCheck_flag = false;
 
-$instr_cnt = 0;
-
 $GF = new _frame;
 $GF->name = "Global";
 
-//XML print
-fputs(STDOUT,"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-fputs(STDOUT,"<program language=\"IPPcode22\">\n");
 
 while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from STDIN (feof is to continue even after a whitespace line)
     if ($PreambleCheck_flag == false){ //runs only for the first line (preamble)
         if ($line != ".IPPcode22"){ //if preamble doesn't equal required string
             echo "ERROR: Preamble .IPPcode22 is missing or mistyped. Found '$line' instead\n"; // !!! ERROR HANDLING REQUIRED !!!
+            $return = ErrHandles::OutFilesErr->value;
+        } else {
+            //XML print
+            fputs(STDOUT,"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+            fputs(STDOUT,"<program language=\"IPPcode22\">\n");
         }
     }
 
@@ -196,305 +332,320 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
 
         //echo "$word\n"; // required output
         switch ($word_arr[0]){ //try to match each word at the start of line with an opcode
-            case "MOVE":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"MOVE\">\n");
-                $instr_cnt++;
-                if (_general::basic_operands_check($word_arr, count($word_arr), 3) == false){
-                    echo "!!! ERROR detected\n";
-                    //exit;
-                }
+/** ⟨var⟩  = variable (GF@foo) 
+ *  ⟨symb⟩ = variable (GF@foo) or constant (int, bool, string, nil)
+**/
+/** MOVE ⟨var⟩ ⟨symb⟩ **/            
+            case strcasecmp($word_arr[0], "MOVE") == 0:
+                _general::opcode_start("MOVE", $word_arr, 3);
 
-                if ($pre = mb_substr($word_arr[1], 0, 2) == "GF"){
-                    if ((_var::check_if_exists(mb_substr($word_arr[1], 3, NULL), "GF")) == true){ //if var exists in GF
-                        //TODO: check if $word_arr[2] hints to a variable or a constant, if variable then if that variable 
-                        //exists, then check whether types of $word_arr[2] and $word_arr[3] are compatible
-                        ;
-                        if ($pre2 = mb_substr($word_arr[1], 0, 2) == "GF"){
-
-                        } else if ($pre2 == "LF"){
-
-                        }
-                    }
-                } else if ($pre == "LF") {
-                    if ((_var::check_if_exists(mb_substr($word_arr[1], 3, NULL), "LF")) == true){ //if var exists in LF
-                        ;
-                    }
-                } /**else if ($pre == "TF") {
-
-                }**/ else {
-                    echo "ERROR: unknown or incompatible operand found for DEFVAR\n";
-                    //exit;
-                }
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
-            case "CREATEFRAME":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"CREATEFRAME\">\n");
-                $instr_cnt++;
+/** CREATEFRAME **/
+            case strcasecmp($word_arr[0], "CREATEFRAME") == 0:
+                _general::opcode_start("CREATEFRAME", $word_arr, 1);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
-            case "PUSHFRAME":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"PUSHFRAME\">\n");
-                $instr_cnt++;
+/** PUSHFRAME **/
+            case strcasecmp($word_arr[0], "PUSHFRAME") == 0:
+                _general::opcode_start("PUSHFRAME", $word_arr, 1);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
-            case "POPFRAME":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"POPFRAME\">\n");
-                $instr_cnt++;
+/** POPFRAME **/
+            case strcasecmp($word_arr[0], "POPFRAME") == 0:
+                _general::opcode_start("POPFRAME", $word_arr, 1);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
-            case "DEFVAR":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"DEFVAR\">\n");
-                $instr_cnt++;
+/** DEFVAR ⟨var⟩ **/
+            case strcasecmp($word_arr[0], "DEFVAR") == 0:
+                _general::opcode_start("DEFVAR", $word_arr, 2);
 
-                if (_general::basic_operands_check($word_arr, count($word_arr), 2) == false){
-                    echo "!!! ERROR detected\n";
-                    //exit;
-                }
-
-                if ($pre = mb_substr($word_arr[1], 0, 2) == "GF"){
-                    //echo "--created new \$var\n";
-                    if ((_var::check_if_exists(mb_substr($word_arr[1], 3, NULL), "GF")) == true){
-                        echo "--ERROR: variable with given name already exists within global frame\n";
-                    } else {
-                        $var = new _var(mb_substr($word_arr[1], 3, NULL), "GF");
-                        //echo "--\$var->name is $var->name\n";
-                    }
-                } else if ($pre == "LF") {
-                    ; /// TODO: Check if LF exists, meaning if we're inside a function, if not -> ERROR ???
-                } /**else if ($pre == "TF") {
-
-                }**/ else {
-                    echo "ERROR: unknown or incompatible operand found for DEFVAR\n";
-                    //exit;
-                }
+                _general::create_var_print(1, $word_arr[1]);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
-            case "CALL":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"CALL\">\n");
-                $instr_cnt++;
-                 /// TODO: create LF as well ???
+/** CALL ⟨label⟩ **/
+            case strcasecmp($word_arr[0], "CALL") == 0:
+                _general::opcode_start("CALL", $word_arr, 2);
+
+                _general::create_label_print(1, $word_arr[1]);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
-            case "RETURN":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"RETURN\">\n");
-                $instr_cnt++;
-                 /// TODO: when returning from a function, destroy LF ???
+/** RETURN **/
+            case strcasecmp($word_arr[0], "RETURN") == 0:
+                _general::opcode_start("RETURN", $word_arr, 1);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
 //------
-            case "PUSHS":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"PUSHS\">\n");
-                $instr_cnt++;
+/** PUSHS ⟨symb⟩ **/
+            case strcasecmp($word_arr[0], "PUSHS") == 0:
+                _general::opcode_start("PUSHS", $word_arr, 2);
+
+                _general::create_symb_print(1, $word_arr[1]);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
-            case "POPS":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"POPS\">\n");
-                $instr_cnt++;
-                
-                fputs(STDOUT,"</instruction>\n");
-                break;
-//------
-            case "ADD":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"ADD\">\n");
-                $instr_cnt++;
-                
-                fputs(STDOUT,"</instruction>\n");
-                break;
-            case "SUB":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"SUB\">\n");
-                $instr_cnt++;
-                
-                fputs(STDOUT,"</instruction>\n");
-                break;
-            case "MUL":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"MUL\">\n");
-                $instr_cnt++;
-                
-                fputs(STDOUT,"</instruction>\n");
-                break;
-            case "IDIV":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"IDIV\">\n");
-                $instr_cnt++;
-                
-                fputs(STDOUT,"</instruction>\n");
-                break;
-            case "LT":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"LT\">\n");
-                $instr_cnt++;
-                
-                fputs(STDOUT,"</instruction>\n");
-                break;
-            case "GT":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"GT\">\n");
-                $instr_cnt++;
-                
-                fputs(STDOUT,"</instruction>\n");
-                break;
-            case "EQ":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"EQ\">\n");
-                $instr_cnt++;
-                
-                fputs(STDOUT,"</instruction>\n");
-                break;
-            case "AND":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"AND\">\n");
-                $instr_cnt++;
-                
-                fputs(STDOUT,"</instruction>\n");
-                break;
-            case "OR":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"OR\">\n");
-                $instr_cnt++;
-                
-                fputs(STDOUT,"</instruction>\n");
-                break;
-            case "NOT":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"NOT\">\n");
-                $instr_cnt++;
-                
-                fputs(STDOUT,"</instruction>\n");
-                break;
-            case "INT2CHAR":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"INT2CHAR\">\n");
-                $instr_cnt++;
-                
-                fputs(STDOUT,"</instruction>\n");
-                break;
-            case "STRI2INT":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"STR2INT\">\n");
-                $instr_cnt++;
+/** POPS ⟨var⟩ **/
+            case strcasecmp($word_arr[0], "POPS") == 0:
+                _general::opcode_start("POPS", $word_arr, 2);
+
+                _general::create_var_print(1, $word_arr[1]);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
 //------
-            case "READ":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"READ\">\n");
-                $instr_cnt++;
+/** ADD ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
+            case strcasecmp($word_arr[0], "ADD") == 0:
+                _general::opcode_start("ADD", $word_arr, 4);
+
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
+                _general::create_symb_print(2, $word_arr[3]);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
-            case "WRITE":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"WRITE\">\n");
-                $instr_cnt++;
+/** SUB ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
+            case strcasecmp($word_arr[0], "SUB") == 0:
+                _general::opcode_start("SUB", $word_arr, 4);
+                
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
+                _general::create_symb_print(3, $word_arr[3]);
+
+                fputs(STDOUT,"</instruction>\n");
+                break;
+/** MUL ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
+            case strcasecmp($word_arr[0], "MUL") == 0:
+                _general::opcode_start("MUL", $word_arr, 4);
+                
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
+                _general::create_symb_print(3, $word_arr[3]);
+                
+                fputs(STDOUT,"</instruction>\n");
+                break;
+/** IDIV ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
+            case strcasecmp($word_arr[0], "IDIV") == 0:
+                _general::opcode_start("IDIV", $word_arr, 4);
+                
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
+                _general::create_symb_print(3, $word_arr[3]);
+                
+                fputs(STDOUT,"</instruction>\n");
+                break;
+/** LT ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
+            case strcasecmp($word_arr[0], "LT") == 0:
+                _general::opcode_start("LT", $word_arr, 4);
+                
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
+                _general::create_symb_print(3, $word_arr[3]);
+                
+                fputs(STDOUT,"</instruction>\n");
+                break;
+/** GT ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
+            case strcasecmp($word_arr[0], "GT") == 0:
+                _general::opcode_start("GT", $word_arr, 4);
+                
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
+                _general::create_symb_print(3, $word_arr[3]);
+                
+                fputs(STDOUT,"</instruction>\n");
+                break;
+/** EQ ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
+            case strcasecmp($word_arr[0], "EQ") == 0:
+                _general::opcode_start("EQ", $word_arr, 4);
+                
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
+                _general::create_symb_print(3, $word_arr[3]);
+                
+                fputs(STDOUT,"</instruction>\n");
+                break;
+/** AND ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
+            case strcasecmp($word_arr[0], "AND") == 0:
+                _general::opcode_start("AND", $word_arr, 4);
+                
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
+                _general::create_symb_print(3, $word_arr[3]);
+                
+                fputs(STDOUT,"</instruction>\n");
+                break;
+/** OR ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
+            case strcasecmp($word_arr[0], "OR") == 0:
+                _general::opcode_start("OR", $word_arr, 4);
+                
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
+                _general::create_symb_print(3, $word_arr[3]);
+                
+                fputs(STDOUT,"</instruction>\n");
+                break;
+/** NOT ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
+            case strcasecmp($word_arr[0], "NOT") == 0:
+                _general::opcode_start("NOT", $word_arr, 4);
+                
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
+                _general::create_symb_print(3, $word_arr[3]);
+                
+                fputs(STDOUT,"</instruction>\n");
+                break;
+/** INT2CHAR ⟨var⟩ ⟨symb⟩ **/
+            case strcasecmp($word_arr[0], "INT2CHAR") == 0:
+                _general::opcode_start("INT2CHAR", $word_arr, 3);
+                
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
+
+                fputs(STDOUT,"</instruction>\n");
+                break;
+/** STR2INT ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
+            case strcasecmp($word_arr[0], "STR2INT") == 0:
+                _general::opcode_start("STR2INT", $word_arr, 4);
+                
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
+                _general::create_symb_print(3, $word_arr[3]);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
 //------
-            case "CONCAT":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"CONCAT\">\n");
-                $instr_cnt++;
+/** READ ⟨var⟩ ⟨type⟩ **/
+            case strcasecmp($word_arr[0], "READ") == 0:
+                _general::opcode_start("READ", $word_arr, 3);
+                
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_type_print(2, $word_arr[2]);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
-            case "STRLEN":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"STRLEN\">\n");
-                $instr_cnt++;
+/** WRITE ⟨symb⟩ **/
+            case strcasecmp($word_arr[0], "WRITE") == 0:
+                _general::opcode_start("WRITE", $word_arr, 2);
+
+                _general::create_symb_print(1, $word_arr[1]);
+
+                fputs(STDOUT,"</instruction>\n");
+                break;
+//------
+/** CONCAT ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
+            case strcasecmp($word_arr[0], "CONCAT") == 0:
+                _general::opcode_start("CONCAT", $word_arr, 4);
+                
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
+                _general::create_symb_print(3, $word_arr[3]);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
-            case "GETCHAR":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"GETCHAR\">\n");
-                $instr_cnt++;
+/** STRLEN ⟨var⟩ ⟨symb⟩ **/
+            case strcasecmp($word_arr[0], "STRLEN") == 0:
+                _general::opcode_start("STRLEN", $word_arr, 3);
+                
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
-            case "SETCHAR":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"SETCHAR\">\n");
-                $instr_cnt++;
+/** GETCHAR ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
+            case strcasecmp($word_arr[0], "GETCHAR") == 0:
+                _general::opcode_start("GETCHAR", $word_arr, 4);
+                
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
+                _general::create_symb_print(3, $word_arr[3]);
+                
+                fputs(STDOUT,"</instruction>\n");
+                break;
+/** SETCHAR ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
+            case strcasecmp($word_arr[0], "SETCHAR") == 0:
+                _general::opcode_start("SETCHAR", $word_arr, 4);
+                
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
+                _general::create_symb_print(3, $word_arr[3]);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
 //------
-            case "TYPE":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"TYPE\">\n");
-                $instr_cnt++;
+/** TYPE ⟨var⟩ ⟨symb⟩ **/
+            case strcasecmp($word_arr[0], "TYPE") == 0:
+                _general::opcode_start("TYPE", $word_arr, 3);
+                
+                _general::create_var_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
 //------
-            case "LABEL":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"LABEL\">\n");
-                $instr_cnt++;
+/** LABEL ⟨label⟩ **/
+            case strcasecmp($word_arr[0], "LABEL") == 0:
+                _general::opcode_start("LABEL", $word_arr, 2);
+                
+                _general::create_label_print(1, $word_arr[1]);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
-            case "JUMP":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"JUMP\">\n");
-                $instr_cnt++;
+/** JUMP ⟨label⟩ **/
+            case strcasecmp($word_arr[0], "JUMP") == 0:
+                _general::opcode_start("JUMP", $word_arr, 2);
+                
+                _general::create_label_print(1, $word_arr[1]);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
-            case "JUMPIFEQ":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"JUMPIFEQ\">\n");
-                $instr_cnt++;
+/** JUMPIFEQ ⟨label⟩ ⟨symb1⟩ ⟨symb2⟩ **/
+            case strcasecmp($word_arr[0], "JUMPIFEQ") == 0:
+                _general::opcode_start("JUMPIFEQ", $word_arr, 4);
+                
+                _general::create_label_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
+                _general::create_symb_print(3, $word_arr[3]);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
-            case "JUMPIFNEQ":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"JUMPIFNEQ\">\n");
-                $instr_cnt++;
+/** JUMPIFNEQ ⟨label⟩ ⟨symb1⟩ ⟨symb2⟩ **/
+            case strcasecmp($word_arr[0], "JUMPIFNEQ") == 0:
+                _general::opcode_start("JUMPIFNEQ", $word_arr, 4);
+                
+                _general::create_label_print(1, $word_arr[1]);
+                _general::create_symb_print(2, $word_arr[2]);
+                _general::create_symb_print(3, $word_arr[3]);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
-            case "EXIT":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"EXIT\">\n");
-                $instr_cnt++;
+/** EXIT ⟨symb⟩ **/
+            case strcasecmp($word_arr[0], "EXIT") == 0:
+                _general::opcode_start("EXIT", $word_arr, 2);
+                
+                _general::create_symb_print(1, $word_arr[1]);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
 //------
-            case "DPRINT":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"DPRINT\">\n");
-                $instr_cnt++;
+/** DPRINT ⟨symb⟩ **/
+            case strcasecmp($word_arr[0], "DPRINT") == 0:
+                _general::opcode_start("DPRINT", $word_arr, 2);
+                
+                _general::create_symb_print(1, $word_arr[1]);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
-            case "BREAK":
-                //XML print
-                fputs(STDOUT,"<instruction order=\"$instr_cnt\" opcode=\"BREAK\">\n");
-                $instr_cnt++;
+/** BREAK **/
+            case strcasecmp($word_arr[0], "BREAK") == 0:
+                _general::opcode_start("BREAK", $word_arr, 1);
                 
                 fputs(STDOUT,"</instruction>\n");
                 break;
@@ -519,8 +670,6 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
     --------------------------------
 **/
 // this is how to return errors with specified type (and number)
-$return = ErrHandles::OutFilesErr->value;
-echo "return value is $return.\n";
 
 $code = "MOVE";
 $code_w = "MOVEE";
@@ -543,5 +692,7 @@ if (($OpcodesEnumReflection->hasCase($code_w)) == true){
     $obj = new _var();
 }**/
 
+fputs(STDOUT,"</program>\n");
+exit (0);
 
 ?>
