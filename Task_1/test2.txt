@@ -1,8 +1,11 @@
 .IPPcode22
 MOVE GF@counter string@haha #Inicializace proměnné na prázdný řetězec
 move GF@counter int@5112
+DEFVAR GF@ha&ha&_...?!
+WRITE string@Specialchars\032&\032'\032"\032<\032>
 #Jednoduchá iterace, dokud nebude splněna zadaná podmínka
 WRITE string@Proměnná\032GF@counter\032obsahuje-\032
+WRITE string@EscSequence_Madness\03HAHA\0322HEHE\abcHIHI\??
 WRITE GF@counter
 WRITE string@\010
 WRITE int@12 IMPOSTOR
