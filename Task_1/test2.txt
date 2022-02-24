@@ -1,11 +1,44 @@
 .IPPcode22
+
+#COMMENTS TESTING
+MOVE GF@counter string@haha#Inicializace proměnné na prázdný řetězec
 MOVE GF@counter string@haha #Inicializace proměnné na prázdný řetězec
-move GF@counter int@5112
-DEFVAR GF@ha&ha&_...?!
-WRITE string@Specialchars\032&\032'\032"\032<\032>
+MOVE GF@counter string@haha w #Inicializace proměnné na prázdný řetězec
+move GF@counter int@51#12
 #Jednoduchá iterace, dokud nebude splněna zadaná podmínka
+
+#STRING TESTING
 WRITE string@Proměnná\032GF@counter\032obsahuje-\032
+write string@áíýšéíěÉÍÁÝĚÝÍÁŽŠá
+WRITE string@Specialchars\032&\032'\032"\032<\032>
+WRITE string@
+WRITE string@#hehe
+WRITE string@\222aa
+WRITE string@\2222aa
 WRITE string@EscSequence_Madness\03HAHA\0322HEHE\abcHIHI\??
-WRITE GF@counter
-WRITE string@\010
+WRITE string@\
+WRITE string@\2
+WRITE string@\22
+WRITE string@\22\222
+WRITE string@\010dddaaa\02
+
+#VAR AND LABEL NAMES TESTING
+DEFVAR GF@counter
+DEFVAR GF@0counter
+DEFVAR GF@count\032er
+DEFVAR GF@count|.
+LABEL counter
+LABEL 0counter
+LABEL count\032er
+LABEL count|.
+
+#TYPE TESTING
+READ GF@counter int
+READ GF@counter int@haha
+READ GF@counter notint
+
+#ARGUMENTS TESTING
 WRITE int@12 IMPOSTOR
+WRITE label
+
+#SYMBOL TESTING
