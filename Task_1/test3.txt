@@ -7,7 +7,7 @@ MOVE GF@counter string@haha #Inicializace proměnné na prázdný řetězec
 MOVE GF@counter string@haha # Inicializace proměnné na prázdný řetězec
    MOVE GF@counter string@haha #Inicializace proměnné na prázdný řetězec
 move GF@counter int@51#12
-#MOVE GF@counter string@haha w #Inicializace proměnné na prázdný řetězec
+MOVE GF@counter string@haha w #Inicializace proměnné na prázdný řetězec
 
 #EMPTY LINE / COMMENTED LINE TESTING
 #-----------------------------------

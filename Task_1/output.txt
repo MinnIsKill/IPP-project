@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<program language="IPPcode22">
+    <instruction order="1" opcode="MOVE">
+        <arg1 type="var">GF@counter</arg1>
+            <arg2 type = "string">haha</arg2>
+    </instruction>
+    <instruction order="2" opcode="MOVE">
+        <arg1 type="var">GF@counter</arg1>
+            <arg2 type = "string">haha</arg2>
+    </instruction>
+    <instruction order="3" opcode="MOVE">
+        <arg1 type="var">GF@counter</arg1>
+            <arg2 type = "string">haha</arg2>
+    </instruction>
+    <instruction order="4" opcode="MOVE">
+        <arg1 type="var">GF@counter</arg1>
+            <arg2 type = "string">haha</arg2>
+    </instruction>
+    <instruction order="5" opcode="MOVE">
+        <arg1 type="var">GF@counter</arg1>
+            <arg2 type="int">51</arg2>
+    </instruction>
+    <instruction order="6" opcode="WRITE">
+        <arg1 type = "string">Proměnná\032GF@counter\032obsahuje-\032</arg1>
+    </instruction>
+    <instruction order="7" opcode="WRITE">
+        <arg1 type = "string">áíýšéíěÉÍÁÝĚÝÍÁŽŠá</arg1>
+    </instruction>
+    <instruction order="8" opcode="WRITE">
+        <arg1 type = "string">Specialchars\032&amp;\032&apos;\032&quot;\032&lt;\032&gt;</arg1>
+    </instruction>
+    <instruction order="9" opcode="WRITE">
+        <arg1 type = "string"></arg1>
+    </instruction>
+    <instruction order="10" opcode="WRITE">
+        <arg1 type = "string"></arg1>
+    </instruction>
+    <instruction order="11" opcode="WRITE">
+        <arg1 type = "string">\222aa</arg1>
+    </instruction>
+    <instruction order="12" opcode="WRITE">
+        <arg1 type = "string">\2222aa</arg1>
+    </instruction>
+    <instruction order="13" opcode="DEFVAR">
+        <arg1 type="var">GF@counter</arg1>
+    </instruction>
+    <instruction order="14" opcode="LABEL">
+        <arg1 type="label">counter</arg1>
+    </instruction>
+    <instruction order="15" opcode="READ">
+        <arg1 type="var">GF@counter</arg1>
+            <arg2 type="type">int</arg2>
+    </instruction>
+</program>

@@ -24,7 +24,7 @@
     therefore should be erased and carried on into interpreter.
 **/
 
-ini_set('display_errors', 'stderr'); //to print warning to stderr
+ini_set('display_errors', 'stderr'); //to print warnings to stderr
 
 /**
  *  Enum containing error code handles and their respective values
@@ -38,55 +38,6 @@ enum ErrHandles: int {
     case PreambleErr = 21; // wrong or missing preamble in source file written in IPPcode22
     case OpcodeErr   = 22; // wrong or unknown opcode in source file written in IPPcode22
     case LexSynErr   = 23; // other lexical or syntactical error in source file written in IPPcode22
-}
-
-/**
- *  Enum containing names of every Opcode known to parser.
- *  NOTE: obsolete (had plans to use it at first, chose to go a different route down the line)
- */
-enum Opcodes {
-    case MOVE;
-    case CREATEFRAME;
-    case PUSHFRAME;
-    case POPFRAME;
-    case DEFVAR;
-    case CALL;
-    case RETURN;
-
-    case PUSHS;
-    case POPS;
-
-    case ADD;
-    case SUB;
-    case MUL;
-    case IDIV;
-    case LT;
-    case GT;
-    case EQ;
-    case AND;
-    case OR;
-    case NOT;
-    case INT2CHAR;
-    case STRI2INT;
-
-    case READ;
-    case WRITE;
-
-    case CONCAT;
-    case STRLEN;
-    case GETCHAR;
-    case SETCHAR;
-
-    case TYPE;
-
-    case LABEL;
-    case JUMP;
-    case JUMPIFEQ;
-    case JUMPIFNEQ;
-    case EXIT;
-
-    case DPRINT;
-    case BREAK;
 }
 
 /** GENERAL CLASS
@@ -243,7 +194,7 @@ and syntactical correctness of written code and prints out its XML reprezentatio
     **/
     public static function opcode_start($str, $line, $desired_cnt){
         $cnt = _general::$instr_cnt;
-        _general::$output .="<instruction order=\"$cnt\" opcode=\"$str\">\n";
+        _general::$output .= "    <instruction order=\"$cnt\" opcode=\"$str\">\n";
         _general::$instr_cnt++;
         _general::basic_operands_check($line, count($line), $desired_cnt);
     }
@@ -266,7 +217,7 @@ class _prints {
             fputs(STDERR,"ERROR[23]: passing an unknown or invalid opcode argument where \"var\" is required.\n           Offending argument: $word\n");
             exit (ErrHandles::LexSynErr->value);
         }
-        for ($i = $num; $i > 0; $i--){ _general::$output .="    "; }
+        
         if ((preg_match('/^(GF@|LF@|TF@)+([A-Z]|[a-z]|\_|\-|\$|\&|\%|\*|\!|\?)(([0-9]|[A-Z]|[a-z]|\_|\-|\$|\&|\%|\*|\!|\?))*$/u',$word)) != true){ // check if string is fine
             //if not fine
             fputs(STDERR,"ERROR[23]: variable name error for:   $word\n");
@@ -278,6 +229,7 @@ class _prints {
 
         $string = str_replace("&", "&amp;", $word); // replace special characters with equivalent XML entities
 
+        for ($i = /**$num**/2; $i > 0; $i--){ _general::$output .="    "; }
         _general::$output .="<arg$num type=\"$type\">$string</arg$num>\n";
     }
 
@@ -289,23 +241,38 @@ class _prints {
      *  @param word: string to be checked
     **/
     public static function create_symb_print($num, $word){
+        //for ($i = $num; $i > 0; $i--){ _general::$output .="    "; }
         if (($type = _general::basic_argtype_check($word)) == "type" || $type == "label"){
             fputs(STDERR,"ERROR[23]: passing an unknown or invalid opcode argument where \"symbol\" is required.\n           Offending argument: $word\n");
             exit (ErrHandles::LexSynErr->value);
         } else if ($type == "var") {
             _prints::create_var_print($num, $word);
-        } 
-
-        for ($i = $num; $i > 0; $i--){ _general::$output .="    "; }
-        if ($type == "string") {
+        } else if ($type == "string") {
             _prints::create_string_print($num, $word);
         } else {
             if ((_general::ext_comment_check($word)) == true){ // check if a comment is in string
                 $word = _general::comment_cutter($word); // if so, cut comment out of string
             }
-            $length = strlen($type)+1;
-            $word_modif = mb_substr($word, $length, NULL);
-            _general::$output .="<arg$num type=\"$type\">$word_modif</arg$num>\n";
+
+            if (($type == "nil") && (($post = mb_substr($word, 4, NULL)) == "nil")){
+                for ($i = /**$num**/2; $i > 0; $i--){ _general::$output .="    "; }
+                _general::$output .="<arg$num type=\"$type\">$post</arg$num>\n";
+            } else if (($type == "bool") && ((($post = mb_substr($word, 5, NULL)) == "true") || ($post == "false"))){
+                for ($i = /**$num**/2; $i > 0; $i--){ _general::$output .="    "; }
+                _general::$output .="<arg$num type=\"$type\">$post</arg$num>\n";
+            } else if (($type == "int") && (is_numeric($post = mb_substr($word, 4, NULL)) == true)){
+                for ($i = /**$num**/2; $i > 0; $i--){ _general::$output .="    "; }
+                _general::$output .="<arg$num type=\"$type\">$post</arg$num>\n";
+            } else {
+                fputs(STDERR,"ERROR[23]: passing an opcode argument with invalid value.\n           Offending argument: $word\n");
+                exit (ErrHandles::LexSynErr->value);
+            }
+
+            //$length = strlen($type)+1;
+            //$word_modif = mb_substr($word, $length, NULL);
+            //
+            //for ($i = /**num**/2; $i > 0; $i--){ _general::$output .="    "; }
+            //_general::$output .="<arg$num type=\"$type\">$word_modif</arg$num>\n";
         }
     }
 
@@ -320,7 +287,7 @@ class _prints {
             fputs(STDERR,"ERROR[23]: passing an unknown or invalid opcode argument where \"label\" is required.\n           Offending argument: $word\n");
             exit (ErrHandles::LexSynErr->value);
         }
-        for ($i = $num; $i > 0; $i--){ _general::$output .="    "; }
+        
         if ((_general::ext_comment_check($word)) == true){ // check if a comment is in string
             $word = _general::comment_cutter($word); // if so, cut comment out of string
         }
@@ -332,6 +299,7 @@ class _prints {
 
         $string = str_replace("&", "&amp;", $word); // replace special characters with equivalent XML entities
 
+        for ($i = /**$num**/2; $i > 0; $i--){ _general::$output .="    "; }
         _general::$output .="<arg$num type=\"$type\">$string</arg$num>\n";
     }
 
@@ -346,7 +314,6 @@ class _prints {
             fputs(STDERR,"ERROR[23]: passing an unknown or invalid opcode argument where \"type\" is required\n           Offending argument: $word\n");
             exit (ErrHandles::LexSynErr->value);
         }
-        for ($i = $num; $i > 0; $i--){ _general::$output .="    "; }
 
         if (($word != "nil") && ($word != "int") && ($word != "bool") && ($word != "string")){
             fputs(STDERR,"ERROR[23]: type not recognized:   $word\n");
@@ -356,6 +323,7 @@ class _prints {
             $word = _general::comment_cutter($word); // if so, cut comment out of string
         }
 
+        for ($i = /**$num**/2; $i > 0; $i--){ _general::$output .="    "; }
         _general::$output .="<arg$num type=\"$type\">$word</arg$num>\n";
     }
 
@@ -384,7 +352,8 @@ class _prints {
         $string = str_replace($special_chars, $replacements, $word); // replace special characters with equivalent XML entities
         $string = mb_substr($string, 7, NULL); // cut 'string@' out
 
-        _general::$output .="<arg$num type = \"string\">$string</arg$num>\n";
+        for ($i = /**$num**/2; $i > 0; $i--){ _general::$output .="    "; }
+        _general::$output .="<arg$num type=\"string\">$string</arg$num>\n";
     }
 
 }
@@ -394,13 +363,8 @@ class _prints {
     |   START OF PROGRAM   |
     ------------------------
 **/
-//define reflection of the Opcodes enum for the purpose of using it in matching input to predefined Opcodes enum values
-$OpcodesEnumReflection = new ReflectionEnum(Opcodes::class);
-
 $PreambleCheck_flag = false;
-
-//$GF = new _frame;
-//$GF->name = "Global";
+$PreambleCheck_done_flag = false;
 
 /** SCRIPT PARAMETERS HANDLING **/
 if ($argc != 1){
@@ -431,24 +395,37 @@ if (stream_select($read, $write, $except, 0) === 0 ) {
 }
 
 /** SCRIPT OUTPUT HANDLING **/
-if (! stream_isatty(STDOUT)) { //this just detects if output was redirected to a file, I have yet to find out how to check its readability
+if (! stream_isatty(STDOUT)) { //this just detects if output was redirected to a file, I have not been able to figure out how to check its writability
    //fputs(STDERR,"php script.php > output_file\n\n");
 }
 
 /** START OF SCRIPT INPUT LOADING **/
 while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from STDIN (feof is to continue even after a whitespace line)
     if ($PreambleCheck_flag == false){ //runs only for the first line (preamble)
-        if (strtoupper($line) != ".IPPCODE22"){ //if preamble doesn't equal required string (case insensitive)
-            fputs(STDERR,"ERROR[21]: Preamble .IPPcode22 is missing or mistyped. Found '$line' instead\n"); // !!! ERROR HANDLING REQUIRED !!!
-            exit (ErrHandles::PreambleErr->value);
-        } else {
+        $word_arr = preg_split('@ @', $line, 0, PREG_SPLIT_NO_EMPTY); //return word array
+        if (_general::basic_emptyline_check($line) == true){
+            ;
+        } else if (strncasecmp($line,".IPPCODE22",10) != 0) { //if start of preamble doesn't equal required string (case insensitive)
+            if ((_general::basic_comment_check($word_arr[0]) == false) && (_general::basic_emptyline_check($line) == false)){
+                fputs(STDERR,"ERROR[21]: Preamble .IPPcode22 is missing or mistyped. Found '$line' instead\n");
+                exit (ErrHandles::PreambleErr->value);
+            }
+        } else { //line's starting with required string, now check if everything after it is correct as well
+            if (count($word_arr) > 1){ //if there's more to find after preamble
+                if (_general::basic_comment_check($word_arr[1]) == false){ //then the first non-whitespace character found after it has to be '#' (comment)
+                    fputs(STDERR,"ERROR[21]: Preamble .IPPcode22 is missing or mistyped. Found '$line' instead\n");
+                    exit (ErrHandles::PreambleErr->value);
+                }
+            }
+            //everything is fine, initiate the program's XML output
             _general::$output .="<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
             _general::$output .="<program language=\"IPPcode22\">\n";
+            $PreambleCheck_done_flag = true;
         }
     }
 
     if ((_general::basic_emptyline_check($line) == false) && ($PreambleCheck_flag == true)){ //check if empty line found
-        $word_arr = explode(" ", $line); //return word array
+        $word_arr = preg_split('@ @', $line, 0, PREG_SPLIT_NO_EMPTY); //return word array
         //var_dump($word_arr);
 
         //echo "$word\n"; // required output
@@ -463,25 +440,25 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_var_print(1, $word_arr[1]);
                 _prints::create_symb_print(2, $word_arr[2]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** CREATEFRAME **/
             case strcasecmp($word_arr[0], "CREATEFRAME") == 0:
                 _general::opcode_start("CREATEFRAME", $word_arr, 1);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** PUSHFRAME **/
             case strcasecmp($word_arr[0], "PUSHFRAME") == 0:
                 _general::opcode_start("PUSHFRAME", $word_arr, 1);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** POPFRAME **/
             case strcasecmp($word_arr[0], "POPFRAME") == 0:
                 _general::opcode_start("POPFRAME", $word_arr, 1);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** DEFVAR ⟨var⟩ **/
             case strcasecmp($word_arr[0], "DEFVAR") == 0:
@@ -489,7 +466,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
 
                 _prints::create_var_print(1, $word_arr[1]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** CALL ⟨label⟩ **/
             case strcasecmp($word_arr[0], "CALL") == 0:
@@ -497,13 +474,13 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
 
                 _prints::create_label_print(1, $word_arr[1]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** RETURN **/
             case strcasecmp($word_arr[0], "RETURN") == 0:
                 _general::opcode_start("RETURN", $word_arr, 1);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 //------
 /** PUSHS ⟨symb⟩ **/
@@ -512,7 +489,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
 
                 _prints::create_symb_print(1, $word_arr[1]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** POPS ⟨var⟩ **/
             case strcasecmp($word_arr[0], "POPS") == 0:
@@ -520,7 +497,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
 
                 _prints::create_var_print(1, $word_arr[1]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 //------
 /** ADD ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
@@ -529,9 +506,9 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
 
                 _prints::create_var_print(1, $word_arr[1]);
                 _prints::create_symb_print(2, $word_arr[2]);
-                _prints::create_symb_print(2, $word_arr[3]);
+                _prints::create_symb_print(3, $word_arr[3]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** SUB ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
             case strcasecmp($word_arr[0], "SUB") == 0:
@@ -541,7 +518,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_symb_print(2, $word_arr[2]);
                 _prints::create_symb_print(3, $word_arr[3]);
 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** MUL ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
             case strcasecmp($word_arr[0], "MUL") == 0:
@@ -551,7 +528,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_symb_print(2, $word_arr[2]);
                 _prints::create_symb_print(3, $word_arr[3]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** IDIV ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
             case strcasecmp($word_arr[0], "IDIV") == 0:
@@ -561,7 +538,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_symb_print(2, $word_arr[2]);
                 _prints::create_symb_print(3, $word_arr[3]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** LT ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
             case strcasecmp($word_arr[0], "LT") == 0:
@@ -571,7 +548,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_symb_print(2, $word_arr[2]);
                 _prints::create_symb_print(3, $word_arr[3]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** GT ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
             case strcasecmp($word_arr[0], "GT") == 0:
@@ -581,7 +558,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_symb_print(2, $word_arr[2]);
                 _prints::create_symb_print(3, $word_arr[3]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** EQ ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
             case strcasecmp($word_arr[0], "EQ") == 0:
@@ -591,7 +568,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_symb_print(2, $word_arr[2]);
                 _prints::create_symb_print(3, $word_arr[3]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** AND ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
             case strcasecmp($word_arr[0], "AND") == 0:
@@ -601,7 +578,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_symb_print(2, $word_arr[2]);
                 _prints::create_symb_print(3, $word_arr[3]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** OR ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
             case strcasecmp($word_arr[0], "OR") == 0:
@@ -611,7 +588,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_symb_print(2, $word_arr[2]);
                 _prints::create_symb_print(3, $word_arr[3]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** NOT ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
             case strcasecmp($word_arr[0], "NOT") == 0:
@@ -621,7 +598,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_symb_print(2, $word_arr[2]);
                 _prints::create_symb_print(3, $word_arr[3]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** INT2CHAR ⟨var⟩ ⟨symb⟩ **/
             case strcasecmp($word_arr[0], "INT2CHAR") == 0:
@@ -630,7 +607,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_var_print(1, $word_arr[1]);
                 _prints::create_symb_print(2, $word_arr[2]);
 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** STR2INT ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
             case strcasecmp($word_arr[0], "STR2INT") == 0:
@@ -640,7 +617,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_symb_print(2, $word_arr[2]);
                 _prints::create_symb_print(3, $word_arr[3]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 //------
 /** READ ⟨var⟩ ⟨type⟩ **/
@@ -650,7 +627,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_var_print(1, $word_arr[1]);
                 _prints::create_type_print(2, $word_arr[2]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** WRITE ⟨symb⟩ **/
             case strcasecmp($word_arr[0], "WRITE") == 0:
@@ -658,7 +635,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
 
                 _prints::create_symb_print(1, $word_arr[1]);
 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 //------
 /** CONCAT ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
@@ -669,7 +646,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_symb_print(2, $word_arr[2]);
                 _prints::create_symb_print(3, $word_arr[3]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** STRLEN ⟨var⟩ ⟨symb⟩ **/
             case strcasecmp($word_arr[0], "STRLEN") == 0:
@@ -678,7 +655,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_var_print(1, $word_arr[1]);
                 _prints::create_symb_print(2, $word_arr[2]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** GETCHAR ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
             case strcasecmp($word_arr[0], "GETCHAR") == 0:
@@ -688,7 +665,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_symb_print(2, $word_arr[2]);
                 _prints::create_symb_print(3, $word_arr[3]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** SETCHAR ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
             case strcasecmp($word_arr[0], "SETCHAR") == 0:
@@ -698,7 +675,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_symb_print(2, $word_arr[2]);
                 _prints::create_symb_print(3, $word_arr[3]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 //------
 /** TYPE ⟨var⟩ ⟨symb⟩ **/
@@ -708,7 +685,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_var_print(1, $word_arr[1]);
                 _prints::create_symb_print(2, $word_arr[2]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 //------
 /** LABEL ⟨label⟩ **/
@@ -717,7 +694,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 
                 _prints::create_label_print(1, $word_arr[1]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** JUMP ⟨label⟩ **/
             case strcasecmp($word_arr[0], "JUMP") == 0:
@@ -725,7 +702,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 
                 _prints::create_label_print(1, $word_arr[1]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** JUMPIFEQ ⟨label⟩ ⟨symb1⟩ ⟨symb2⟩ **/
             case strcasecmp($word_arr[0], "JUMPIFEQ") == 0:
@@ -735,7 +712,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_symb_print(2, $word_arr[2]);
                 _prints::create_symb_print(3, $word_arr[3]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** JUMPIFNEQ ⟨label⟩ ⟨symb1⟩ ⟨symb2⟩ **/
             case strcasecmp($word_arr[0], "JUMPIFNEQ") == 0:
@@ -745,7 +722,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _prints::create_symb_print(2, $word_arr[2]);
                 _prints::create_symb_print(3, $word_arr[3]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** EXIT ⟨symb⟩ **/
             case strcasecmp($word_arr[0], "EXIT") == 0:
@@ -753,7 +730,7 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 
                 _prints::create_symb_print(1, $word_arr[1]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 //------
 /** DPRINT ⟨symb⟩ **/
@@ -762,13 +739,13 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 
                 _prints::create_symb_print(1, $word_arr[1]);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 /** BREAK **/
             case strcasecmp($word_arr[0], "BREAK") == 0:
                 _general::opcode_start("BREAK", $word_arr, 1);
                 
-                _general::$output .="</instruction>\n";
+                _general::$output .= "    </instruction>\n";
                 break;
 //------
             default:
@@ -780,7 +757,9 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 }
         }
     } else {
-        $PreambleCheck_flag = true;
+        if ($PreambleCheck_done_flag == true){
+            $PreambleCheck_flag = true;
+        }
     }
 }
 
