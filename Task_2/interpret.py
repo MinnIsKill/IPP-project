@@ -3,7 +3,7 @@
 # Author: xkalis03 (xkalis03@stud.fit.vutbr.cz)
 # 
 
-# python3 interpret.py --source=instruction_order1.src --input=instruction_order1.in
+# python3 interpret.py --source=name.src --input=name.in
 
 import xml.etree.ElementTree as ET # XML parsing module
 import sys # for command line arguments reading
@@ -21,9 +21,21 @@ STDOUT = sys.stdout.write
 instruct_cnt = 0
 ordernums_list = []
 
+Frames_stack = [] # stack of pushed temporary frames, will be searched through before local frame
+pushed_TF_cnt = 0
+
+Data_stack = [] # data stack for values
+
+# - global frame is always active
 global_frame = {}
-local_frame = {}
-temporary_frame = {}
+# - local frame is basically just a stack of frames, at the start LF is at its top, but when a temporary frame gets
+#   pushed (PUSHFRAME), the TF is inserted at the top of LF and you lose access to LF (because it's now lower in the
+#   stack) until the TF at the top is popped (POPFRAME) back out.
+# - multiple temporary frames can be pushed to the top of LF
+# - local frame is undefined at program start
+local_frame = {}  # not active
+# - temporary frame becomes active when CREATEFRAME is called
+temporary_frame = {"status": 0}  # not active
 
 #return_int = 0
 
@@ -86,7 +98,7 @@ class AuxFuncs:
 
         # put all found order numbers in a list
         for node in mytree.findall('.//instruction'):
-            ordernums_list.append(node.attrib['order']) #!!! maybe  int(node.attrib['order'])  ??
+            ordernums_list.append(int(node.attrib['order'])) #!!! maybe  int(node.attrib['order'])  ??
 
         # check if duplicate or negative order numbers received (error)
         AuxFuncs.list_dupl_or_neg_check(ordernums_list)
@@ -136,12 +148,24 @@ class AuxFuncs:
             if (instr[num-1].text[0:3] == "GF@"):
                 if (instr[num-1].text[3:len(instr[num-1].text)] not in global_frame):
                     STDERR("ERROR[54]: {opcode} received an access request to a nonexistent variable (in global frame)\n")
+                    AuxFuncs.error_cleanup(54)
             elif (instr[num-1].text[0:3] == "LF@"):
                 if (instr[num-1].text[3:len(instr[num-1].text)] not in local_frame):
                     STDERR("ERROR[54]: {opcode} received an access request to a nonexistent variable (in local frame)\n")
-            #elif (instr[num-1].text[0:3] == "TF@"):   #!!!  ?????
+                    AuxFuncs.error_cleanup(54)
+                if (local_frame["status"] == 0):
+                    STDERR("ERROR[55]: {opcode} received a variable with reference to an uninitialized (or empty) frame stack\n")
+                    AuxFuncs.error_cleanup(55)
+            elif (instr[num-1].text[0:3] == "TF@"):
+                if (instr[num-1].text[3:len(instr[num-1].text)] not in temporary_frame):
+                    STDERR("ERROR[54]: {opcode} received an access request to a nonexistent variable (in temporary frame)\n")
+                    AuxFuncs.error_cleanup(54)
+                if not Frames_stack: #if Frames_stack is empty
+                    STDERR("ERROR[55]: {opcode} received a variable with reference to an uninitialized (or empty) frame stack\n")
+                    AuxFuncs.error_cleanup(55)
             else:
-                STDERR("ERROR[55]: {opcode} received a variable with reference to a nonexistent (or empty) frame stack\n")
+                STDERR("ERROR[55]: {opcode} received a variable with reference to a nonexistent frame stack\n")
+                AuxFuncs.error_cleanup(55)
 
     #####
     ## handles program exit on error
@@ -153,45 +177,76 @@ class AuxFuncs:
         sys.exit(ID)
 
     @staticmethod
-    def get_prefix(instr):
-        if (instr[1].attrib['type'] == "int"):
+    def get_prefix(instr, num):
+        if (instr[num].attrib['type'] == "int"):
             return "i."
-        elif (instr[1].attrib['type'] == "bool"):
+        elif (instr[num].attrib['type'] == "bool"):
             return "b."
-        elif (instr[1].attrib['type'] == "string"):
+        elif (instr[num].attrib['type'] == "string"):
             return "s."
-        elif (instr[1].attrib['type'] == "nil"):
+        elif (instr[num].attrib['type'] == "nil"):
             return "n."
 
 ############################################################
 #                    OPCODES' FUNCTIONS                    #
 ############################################################
 class OpcodeFuncs:
-    #####
-    ##
+#####
+##
+# MOVE:        tested
+# CREATEFRAME: tested
+# PUSHFRAME:   tested
+# POPFRAME:    tested
+# DEFVAR:      tested
+# CALL:        
+# RETURN:      
     @staticmethod
     def MOVE(instr):
         AuxFuncs.check_arg(instr, "MOVE", 1, "var")
         AuxFuncs.check_arg(instr, "MOVE", 2, "symb")
-        pre = AuxFuncs.get_prefix(instr)
-        #TODO: add variable type to dictionary and check if two variables of different types can coexist (probably not)
+
+        pre = AuxFuncs.get_prefix(instr, 1)
+
         if (instr[0].text[0:3] == "GF@"):
             global_frame[instr[0].text[3:len(instr[0].text)]] = pre + str(instr[1].text)
         elif (instr[0].text[0:3] == "LF@"):
             local_frame[instr[0].text[3:len(instr[0].text)]] = pre + str(instr[1].text)
-        #elif (instr[0].text[0:3] == "TF@"):   #!!!  ?????
+        elif (instr[0].text[0:3] == "TF@"):
+            temporary_frame[instr[0].text[3:len(instr[0].text)]] = pre + str(instr[1].text)
     @staticmethod
-    def CREATEFRAME():
-        0
+    def CREATEFRAME(instr):
+        dict.clear(temporary_frame)
+        temporary_frame["status"] = 1  # active
     @staticmethod
-    def PUSHFRAME():
-        0
+    def PUSHFRAME(instr):
+        global pushed_TF_cnt
+        global Frames_stack
+        global local_frame
+        
+        pushed_TF_cnt += 1
+        Frames_stack.append(temporary_frame.copy())
+        local_frame = Frames_stack[pushed_TF_cnt]
+
+        temporary_frame.clear()
+        temporary_frame["status"] = 0  # not active
     @staticmethod
-    def POPFRAME():
-        0
+    def POPFRAME(instr):
+        global pushed_TF_cnt
+        global Frames_stack
+        global temporary_frame
+        global local_frame
+
+        temporary_frame = Frames_stack[-1].copy() #copy top of stack to TF
+        del Frames_stack[-1] #remove the copied frame at top of stack
+        pushed_TF_cnt -= 1
+
+        local_frame = Frames_stack[pushed_TF_cnt] #adjust LF so it points at new top of stack
+        
+        temporary_frame["status"] = 1  # active
     @staticmethod
     def DEFVAR(instr):
         AuxFuncs.check_arg(instr, "DEFVAR", 1, "var")
+
         if (instr[0].text[0:3] == "GF@"):
             if ((instr[0].text[3:len(instr[0].text)]) not in global_frame):
                 global_frame[instr[0].text[3:len(instr[0].text)]] = ""
@@ -204,23 +259,51 @@ class OpcodeFuncs:
             else:
                 STDERR("ERROR[52]: found an attempt at variable redefinition in local frame\n")
                 AuxFuncs.error_cleanup(52)
-        #elif (instr[0].text[0:3] == "TF@"):   #!!!  ?????
+            if (local_frame["status"] == 0):
+                    STDERR(f"ERROR[55]: {instr.attrib['opcode']} received a variable with reference to an uninitialized (or empty) frame stack\n")
+                    AuxFuncs.error_cleanup(55)
+        elif (instr[0].text[0:3] == "TF@"):
+            if ((instr[0].text[3:len(instr[0].text)]) not in temporary_frame):
+                temporary_frame[instr[0].text[3:len(instr[0].text)]] = ""
+            else:
+                STDERR("ERROR[52]: found an attempt at variable redefinition in temporary frame\n")
+                AuxFuncs.error_cleanup(52)
+            if not Frames_stack: #if Frames_stack is empty
+                    STDERR(f"ERROR[55]: {instr.attrib['opcode']} received a variable with reference to an uninitialized (or empty) frame stack\n")
+                    AuxFuncs.error_cleanup(55)
     @staticmethod
     def CALL():
         0
     @staticmethod
     def RETURN():
         0
-    #####
-    ##
+#####
+##
+# PUSHS: lightly tested
+# POPS:  lightly tested
     @staticmethod
-    def PUSHS():
-        0
+    def PUSHS(instr):
+        AuxFuncs.check_arg(instr, "PUSHS", 1, "symb")
+
+        pre = AuxFuncs.get_prefix(instr, 0)
+
+        Data_stack.append(pre + str(instr[0].text))
     @staticmethod
-    def POPS():
-        0
-    #####
-    ##
+    def POPS(instr):
+        global Data_stack
+
+        AuxFuncs.check_arg(instr, "POPS", 1, "var")
+
+        if (instr[0].text[0:3] == "GF@"):
+            global_frame[instr[0].text[3:len(instr[0].text)]] = Data_stack[-1]
+        elif (instr[0].text[0:3] == "LF@"):
+            local_frame[instr[0].text[3:len(instr[0].text)]] = Data_stack[-1]
+        elif (instr[0].text[0:3] == "TF@"):
+            temporary_frame[instr[0].text[3:len(instr[0].text)]] = Data_stack[-1]
+        
+        del Data_stack[-1] #remove the copied value at top of stack
+#####
+##
     @staticmethod
     def ADD():
         0
@@ -257,24 +340,28 @@ class OpcodeFuncs:
     @staticmethod
     def STRI2INT():
         0
-    #####
-    ##
+#####
+##
+# READ:  
+# WRITE: tested
     @staticmethod
     def READ():
         0
     @staticmethod
     def WRITE(instr):
         AuxFuncs.check_arg(instr, "WRITE", 1, "symb")
+
         if(instr[0].attrib['type'] == "var"):
             if (instr[0].text[0:3] == "GF@"):
-                STDOUT(str(global_frame[instr[0].text[3:len(instr[0].text)]][2:len(global_frame[instr[0].text[3:len(instr[0].text)]])]) + '\n')
+                STDOUT(str(global_frame[instr[0].text[3:len(instr[0].text)]][2:len(global_frame[instr[0].text[3:len(instr[0].text)]])]))
             elif (instr[0].text[0:3] == "LF@"):
-                STDOUT(str(local_frame[instr[0].text[3:len(instr[0].text)]][2:len(local_frame[instr[0].text[3:len(instr[0].text)]])]) + '\n')
-            #elif (instr[0].text[0:3] == "TF@"):
+                STDOUT(str(local_frame[instr[0].text[3:len(instr[0].text)]][2:len(local_frame[instr[0].text[3:len(instr[0].text)]])]))
+            elif (instr[0].text[0:3] == "TF@"):
+                STDOUT(str(temporary_frame[instr[0].text[3:len(instr[0].text)]][2:len(temporary_frame[instr[0].text[3:len(instr[0].text)]])]))
         else:
-            STDOUT(str(instr[0].text[3:len(instr[0].text)]) + '\n')
-    #####
-    ##
+            STDOUT(str(instr[0].text[3:len(instr[0].text)]))
+#####
+##
     @staticmethod
     def CONCAT():
         0
@@ -287,13 +374,13 @@ class OpcodeFuncs:
     @staticmethod
     def SETCHAR():
         0
-    #####
-    ##
+#####
+##
     @staticmethod
     def TYPE():
         0
-    #####
-    ##
+#####
+##
     @staticmethod
     def LABEL():
         0
@@ -306,8 +393,8 @@ class OpcodeFuncs:
     @staticmethod
     def JUMPIFNEQ():
         0
-    #####
-    ##
+#####
+##
     @staticmethod
     def DPRINT():
         0
@@ -339,10 +426,10 @@ if __name__ == "__main__":
         STDERR("ERROR[10]: insufficient number of input parameters\n")
         AuxFuncs.error_cleanup(10)
             
-print(f"--Source file:  {source_file}")
-print(f"--Input file:   {input_file}")
+#print(f"--Source file:  {source_file}")
+#print(f"--Input file:   {input_file}")
+print(f"\n\n\n")
 
-#TODO: do the same as the following but for Input file
 if (source_file != ""):
     mytree = ET.parse(f'{source_file}')
 else:
@@ -350,6 +437,8 @@ else:
 myroot = mytree.getroot()
 
 AuxFuncs.program_start_handle()
+
+Frames_stack.append(local_frame)
 
 #####
 ## MAIN LOOP
@@ -360,7 +449,7 @@ while i < instruct_cnt:
     order_num = min(ordernums_list) # get smallest order number from list
     ordernums_list.remove(order_num) # remove smallest order number from list
     for instr in myroot: # search through all instructions and
-        if (instr.attrib['order'] == order_num): # find the one whose order number corresponds to searched one
+        if (int(instr.attrib['order']) == order_num): # find the one whose order number corresponds to searched one
             try:
                 opcode = getattr(class_opfuncs, instr.attrib['opcode'])
             except:
@@ -369,16 +458,31 @@ while i < instruct_cnt:
                 AuxFuncs.error_cleanup(666) #!!!
             opcode(instr)
 
-            print('--' + instr.attrib['opcode'])
+            #print('--' + instr.attrib['opcode'])
     i += 1
 
 
 ############################################################
 #                     AUXILIARY PRINTS                     #
 ############################################################
-
+print(f"\n\n\n")
 # global frame contents
 print(f"\nGLOBAL FRAME CONTENTS: ")
 for var in global_frame:
     print(f"[{var}: {str(global_frame[var])}]", end=" ")
-print(f"") #newline
+
+# local frame contents
+print(f"\nLOCAL FRAME CONTENTS: ")
+for var in local_frame:
+    print(f"[{var}: {str(local_frame[var])}]", end=" ")
+
+# local frame contents
+print(f"\nTEMPORARY FRAME CONTENTS: ")
+for var in temporary_frame:
+    print(f"[{var}: {str(temporary_frame[var])}]", end=" ")
+
+# frame stack contents
+print(f"\nFRAME STACK CONTENTS: ")
+print(Frames_stack)
+
+#print(f"") #newline
