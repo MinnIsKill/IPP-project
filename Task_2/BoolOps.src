@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<program language="IPPcode22" name="RelationalOps">
+	<instruction order="1" opcode="DEFVAR">
+		<arg1 type="var">GF@and</arg1>
+	</instruction>
+	<instruction order="2" opcode="DEFVAR">
+		<arg1 type="var">GF@or</arg1>
+	</instruction>
+	<instruction order="3" opcode="DEFVAR">
+		<arg1 type="var">GF@not</arg1>
+	</instruction>
+
+	<instruction order="10" opcode="DEFVAR">
+		<arg1 type="var">GF@var</arg1>
+	</instruction>
+
+	<instruction order="11" opcode="MOVE">
+		<arg1 type="var">GF@var</arg1>
+		<arg2 type="bool">true</arg2>
+	</instruction>
+#var=true
+	<instruction order="12" opcode="AND">
+		<arg1 type="var">GF@and</arg1>
+		<arg2 type="bool">true</arg2>
+		<arg3 type="var">GF@var</arg3>
+	</instruction>
+#and=true
+	<instruction order="13" opcode="OR">
+		<arg1 type="var">GF@or</arg1>
+		<arg2 type="bool">false</arg2>
+		<arg3 type="var">GF@var</arg3>
+	</instruction>
+#or=true
+	<instruction order="14" opcode="NOT">
+		<arg1 type="var">GF@not</arg1>
+		<arg2 type="var">GF@var</arg2>
+	</instruction>
+#not=false
+
+	<instruction order="23" opcode="WRITE">
+        <arg1 type="var">GF@and</arg1>
+    </instruction>
+	<instruction order="26" opcode="WRITE">
+        <arg1 type="string">   </arg1>
+    </instruction>
+
+	<instruction order="27" opcode="WRITE">
+        <arg1 type="var">GF@or</arg1>
+    </instruction>
+	<instruction order="30" opcode="WRITE">
+        <arg1 type="string">   </arg1>
+    </instruction>
+
+	<instruction order="31" opcode="WRITE">
+        <arg1 type="var">GF@not</arg1>
+    </instruction>
+</program>

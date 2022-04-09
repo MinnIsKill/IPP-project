@@ -74,9 +74,10 @@ using input from parameters entered from the command line, interprets this progr
 #                   AUXILIARY FUNCTIONS                    #
 ############################################################
 
+############################################################
 class AuxFuncs:
-    #####
-    ## checks input arguments for --help argument
+############################################################
+## checks input arguments for --help argument
     @staticmethod
     def check_helparg():
         for i, arg in enumerate(sys.argv):
@@ -88,8 +89,8 @@ class AuxFuncs:
                 exit(10)
             # else no --help found
 
-    #####
-    ## handles everything needed to check and prepare to be able to continue to the program's main function
+############################################################
+## handles everything needed to check and prepare to be able to continue to the program's main function
     @staticmethod
     def program_start_handle():
         # count the number of instructions in XML
@@ -105,8 +106,8 @@ class AuxFuncs:
         # check if duplicate or negative order numbers received (error)
         AuxFuncs.list_dupl_or_neg_check(ordernums_list)
 
-    #####
-    ## finds out if there are duplicate values in a list
+############################################################
+## finds out if there are duplicate values in a list
     @staticmethod
     def list_dupl_or_neg_check(ordernums_list):
         l1 = []
@@ -119,12 +120,12 @@ class AuxFuncs:
                 AuxFuncs.error_cleanup(32)
         l1.clear()
 
-    #####
-    ## checks basic argument correctness (for further info check the comments inside the function)
-    #<var>: var
-    #<label>: label
-    #<symb>: int, bool, string, nil, var
-    #<type>: type
+############################################################
+## checks basic argument correctness (for further info check the comments inside the function)
+#<var>: var
+#<label>: label
+#<symb>: int, bool, string, nil, var
+#<type>: type
     @staticmethod
     def check_arg(instr, opcode, num, type):
         symb_is_var = 0
@@ -171,9 +172,9 @@ class AuxFuncs:
                 STDERR("ERROR[55]: {opcode} received a variable with reference to a nonexistent frame stack\n")
                 AuxFuncs.error_cleanup(55)
 
-    #####
-    ## mainly for arithmetics' purposes (ADD, SUB, MUL, IDIV)
-    ## checks if given attribute is of type int (returns its value) or not (error)
+############################################################
+## mainly for arithmetics' purposes (ADD, SUB, MUL, IDIV)
+## checks if given attribute is of type int (returns its value) or not (error)
     @staticmethod
     def symb_int_check_and_ret(instr, opcode, num):
         num = num - 1
@@ -201,8 +202,8 @@ class AuxFuncs:
             STDERR(f"ERROR[53]: {opcode} received an operant of unexpected type (expected 'int')\n")
             AuxFuncs.error_cleanup(53)
         
-    #####
-    ## handles program exit on error
+############################################################
+## handles program exit on error
     @staticmethod
     def error_cleanup(ID):
         ordernums_list.clear()
@@ -210,8 +211,8 @@ class AuxFuncs:
 
         sys.exit(ID)
 
-    #####
-    ## returns the prefix for the type of the passed argument
+############################################################
+## returns the prefix for the type of the passed argument
     @staticmethod
     def get_prefix(instr, num):
         num = num - 1
@@ -243,8 +244,8 @@ class AuxFuncs:
             elif (instr[num].text[0:3] == "TF@"):
                 return (temporary_frame[instr[num].text[3:len(instr[num].text)]][0:2])
 
-    #####
-    ## returns the value of the passed argument
+############################################################
+## returns the value of the passed argument
     @staticmethod
     def get_val(instr, num):
         num = num - 1
@@ -289,6 +290,8 @@ class OpcodeFuncs:
 # DEFVAR:      tested
 # CALL:        
 # RETURN:      
+##
+############################################################
     @staticmethod
     def MOVE(instr):
         AuxFuncs.check_arg(instr, "MOVE", 1, "var")
@@ -302,10 +305,12 @@ class OpcodeFuncs:
             local_frame[instr[0].text[3:len(instr[0].text)]] = pre + str(instr[1].text)
         elif (instr[0].text[0:3] == "TF@"):
             temporary_frame[instr[0].text[3:len(instr[0].text)]] = pre + str(instr[1].text)
+############################################################
     @staticmethod
     def CREATEFRAME(instr):
         dict.clear(temporary_frame)
         temporary_frame["status"] = 1  # active
+############################################################
     @staticmethod
     def PUSHFRAME(instr):
         global pushed_TF_cnt
@@ -318,6 +323,7 @@ class OpcodeFuncs:
 
         temporary_frame.clear()
         temporary_frame["status"] = 0  # not active
+############################################################
     @staticmethod
     def POPFRAME(instr):
         global pushed_TF_cnt
@@ -332,6 +338,7 @@ class OpcodeFuncs:
         local_frame = Frames_stack[pushed_TF_cnt] #adjust LF so it points at new top of stack
         
         temporary_frame["status"] = 1  # active
+############################################################
     @staticmethod
     def DEFVAR(instr):
         AuxFuncs.check_arg(instr, "DEFVAR", 1, "var")
@@ -360,16 +367,20 @@ class OpcodeFuncs:
             if not Frames_stack: #if Frames_stack is empty
                     STDERR(f"ERROR[55]: {instr.attrib['opcode']} received a variable with reference to an uninitialized (or empty) frame stack\n")
                     AuxFuncs.error_cleanup(55)
+############################################################
     @staticmethod
     def CALL():
         0
+############################################################
     @staticmethod
     def RETURN():
         0
-#####
+############################################################
 ##
 # PUSHS: lightly tested
 # POPS:  lightly tested
+##
+############################################################
     @staticmethod
     def PUSHS(instr):
         AuxFuncs.check_arg(instr, "PUSHS", 1, "symb")
@@ -377,6 +388,7 @@ class OpcodeFuncs:
         pre = AuxFuncs.get_prefix(instr, 2)
 
         Data_stack.append(pre + str(instr[0].text))
+############################################################
     @staticmethod
     def POPS(instr):
         global Data_stack
@@ -391,20 +403,22 @@ class OpcodeFuncs:
             temporary_frame[instr[0].text[3:len(instr[0].text)]] = Data_stack[-1]
         
         del Data_stack[-1] #remove the copied value at top of stack
-#####
+############################################################
 ##
-# ADD:      not tested
-# SUB:      not tested
-# MUL:      not tested
-# IDIV:     not tested
-# LT:       not tested
-# GT:       not tested
-# EQ:       not tested
-# AND:      not tested
-# OR:       not tested
-# NOT:      not tested
-# INT2CHAR: not tested
-# STRI2INT: not tested
+# ADD:      lightly tested
+# SUB:      lightly tested
+# MUL:      lightly tested
+# IDIV:     lightly tested
+# LT:       lightly tested
+# GT:       lightly tested
+# EQ:       lightly tested
+# AND:      lightly tested
+# OR:       lightly tested
+# NOT:      lightly tested
+# INT2CHAR: no tested
+# STRI2INT: no tested
+##
+############################################################
     @staticmethod
     def ADD(instr):
         AuxFuncs.check_arg(instr, "ADD", 1, "var")
@@ -420,6 +434,7 @@ class OpcodeFuncs:
             local_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) + int(symb2)))
         elif (instr[0].text[0:3] == "TF@"):
             temporary_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) + int(symb2)))
+############################################################
     @staticmethod
     def SUB(instr):
         AuxFuncs.check_arg(instr, "SUB", 1, "var")
@@ -435,6 +450,7 @@ class OpcodeFuncs:
             local_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) - int(symb2)))
         elif (instr[0].text[0:3] == "TF@"):
             temporary_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) - int(symb2)))
+############################################################
     @staticmethod
     def MUL(instr):
         AuxFuncs.check_arg(instr, "MUL", 1, "var")
@@ -450,6 +466,7 @@ class OpcodeFuncs:
             local_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) * int(symb2)))
         elif (instr[0].text[0:3] == "TF@"):
             temporary_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) * int(symb2)))
+############################################################
     @staticmethod
     def IDIV(instr):
         AuxFuncs.check_arg(instr, "IDIV", 1, "var")
@@ -459,12 +476,17 @@ class OpcodeFuncs:
         symb1 = AuxFuncs.symb_int_check_and_ret(instr, "IDIV", 2)
         symb2 = AuxFuncs.symb_int_check_and_ret(instr, "IDIV", 3)
 
+        if (int(symb2) == 0):
+            STDERR("ERROR[57]: IDIV received '0' as a second attribute (attempt in division by zero)\n")
+            AuxFuncs.error_cleanup(57)
+
         if (instr[0].text[0:3] == "GF@"):
             global_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) // int(symb2)))
         elif (instr[0].text[0:3] == "LF@"):
             local_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) // int(symb2)))
         elif (instr[0].text[0:3] == "TF@"):
             temporary_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) // int(symb2)))
+############################################################
     @staticmethod
     def LT(instr):
         AuxFuncs.check_arg(instr, "LT", 1, "var")
@@ -498,11 +520,12 @@ class OpcodeFuncs:
         else:
             STDERR("ERROR[53]: LT received an attempt at comparing two attributes of different types\n")
             AuxFuncs.error_cleanup(53)
+############################################################
     @staticmethod
     def GT(instr):
-        AuxFuncs.check_arg(instr, "LT", 1, "var")
-        AuxFuncs.check_arg(instr, "LT", 2, "symb")
-        AuxFuncs.check_arg(instr, "LT", 3, "symb")
+        AuxFuncs.check_arg(instr, "GT", 1, "var")
+        AuxFuncs.check_arg(instr, "GT", 2, "symb")
+        AuxFuncs.check_arg(instr, "GT", 3, "symb")
 
         type1 = AuxFuncs.get_prefix(instr, 2)
         type2 = AuxFuncs.get_prefix(instr, 3)
@@ -526,16 +549,17 @@ class OpcodeFuncs:
             else:
                 global_frame[instr[0].text[3:len(instr[0].text)]] = "b.false"
         elif ((type1 == "n.") or (type2 == "n.")):
-            STDERR("ERROR[53]: LT received 'nil' as an attribute\n")
+            STDERR("ERROR[53]: GT received 'nil' as an attribute\n")
             AuxFuncs.error_cleanup(53)
         else:
-            STDERR("ERROR[53]: LT received an attempt at comparing two attributes of different types\n")
+            STDERR("ERROR[53]: GT received an attempt at comparing two attributes of different types\n")
             AuxFuncs.error_cleanup(53)
+############################################################
     @staticmethod
     def EQ(instr):
-        AuxFuncs.check_arg(instr, "LT", 1, "var")
-        AuxFuncs.check_arg(instr, "LT", 2, "symb")
-        AuxFuncs.check_arg(instr, "LT", 3, "symb")
+        AuxFuncs.check_arg(instr, "EQ", 1, "var")
+        AuxFuncs.check_arg(instr, "EQ", 2, "symb")
+        AuxFuncs.check_arg(instr, "EQ", 3, "symb")
 
         type1 = AuxFuncs.get_prefix(instr, 2)
         type2 = AuxFuncs.get_prefix(instr, 3)
@@ -559,44 +583,93 @@ class OpcodeFuncs:
             else:
                 global_frame[instr[0].text[3:len(instr[0].text)]] = "b.false"
         elif ((type1 == "n.") or (type2 == "n.")):
-            STDERR("ERROR[53]: LT received 'nil' as an attribute\n")
-            AuxFuncs.error_cleanup(53)
+            if (val1 == val2):
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.true"
+            else:
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.false"
         else:
-            STDERR("ERROR[53]: LT received an attempt at comparing two attributes of different types\n")
+            STDERR("ERROR[53]: EQ received an attempt at comparing two attributes of different types\n")
             AuxFuncs.error_cleanup(53)
+############################################################
     @staticmethod
     def AND(instr):
-        AuxFuncs.check_arg(instr, "LT", 1, "var")
-        AuxFuncs.check_arg(instr, "LT", 2, "symb")
-        AuxFuncs.check_arg(instr, "LT", 3, "symb")
+        AuxFuncs.check_arg(instr, "AND", 1, "var")
+        AuxFuncs.check_arg(instr, "AND", 2, "symb")
+        AuxFuncs.check_arg(instr, "AND", 3, "symb")
 
-        0
+        type1 = AuxFuncs.get_prefix(instr, 2)
+        type2 = AuxFuncs.get_prefix(instr, 3)
+
+        val1 = AuxFuncs.get_val(instr, 2)
+        val2 = AuxFuncs.get_val(instr, 3)
+
+        if ((type1 == "b.") and (type2 == "b.")):
+            if ((val1 == "true") and (val2 == "true")):
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.true"
+            else:
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.false"
+        else:
+            STDERR("ERROR[53]: AND received at least one attribute not of boolean type\n")
+            AuxFuncs.error_cleanup(53)
+############################################################
     @staticmethod
     def OR(instr):
-        AuxFuncs.check_arg(instr, "LT", 1, "var")
-        AuxFuncs.check_arg(instr, "LT", 2, "symb")
-        AuxFuncs.check_arg(instr, "LT", 3, "symb")
+        AuxFuncs.check_arg(instr, "OR", 1, "var")
+        AuxFuncs.check_arg(instr, "OR", 2, "symb")
+        AuxFuncs.check_arg(instr, "OR", 3, "symb")
 
-        0
+        type1 = AuxFuncs.get_prefix(instr, 2)
+        type2 = AuxFuncs.get_prefix(instr, 3)
+
+        val1 = AuxFuncs.get_val(instr, 2)
+        val2 = AuxFuncs.get_val(instr, 3)
+
+        if ((type1 == "b.") and (type2 == "b.")):
+            if ((val1 == "true") or (val2 == "true")):
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.true"
+            else:
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.false"
+        else:
+            STDERR("ERROR[53]: OR received at least one attribute not of boolean type\n")
+            AuxFuncs.error_cleanup(53)
+############################################################
     @staticmethod
     def NOT(instr):
+        AuxFuncs.check_arg(instr, "NOT", 1, "var")
+        AuxFuncs.check_arg(instr, "NOT", 2, "symb")
+
+        type = AuxFuncs.get_prefix(instr, 2)
+
+        val = AuxFuncs.get_val(instr, 2)
+
+        if (type == "b."):
+            if (val == "true"):
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.false"
+            else:
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.true"
+        else:
+            STDERR("ERROR[53]: NOT received attribute not of boolean type\n")
+            AuxFuncs.error_cleanup(53)
+############################################################
+    @staticmethod
+    def INT2CHAR():
         AuxFuncs.check_arg(instr, "LT", 1, "var")
         AuxFuncs.check_arg(instr, "LT", 2, "symb")
 
-        0
-    @staticmethod
-    def INT2CHAR():
-        0
+############################################################
     @staticmethod
     def STRI2INT():
         0
-#####
+############################################################
 ##
 # READ:  
 # WRITE: tested
+##
+############################################################
     @staticmethod
     def READ():
         0
+############################################################
     @staticmethod
     def WRITE(instr):
         AuxFuncs.check_arg(instr, "WRITE", 1, "symb")
@@ -610,8 +683,14 @@ class OpcodeFuncs:
                 STDOUT(str(temporary_frame[instr[0].text[3:len(instr[0].text)]][2:len(global_frame[instr[0].text[3:len(instr[0].text)]])]))
         else:
             STDOUT(str(instr[0].text))
-#####
+############################################################
 ##
+# CONCAT:  
+# STRLEN:  
+# GETCHAR: 
+# SETCHAR: 
+##
+############################################################
     @staticmethod
     def CONCAT():
         0
@@ -624,13 +703,22 @@ class OpcodeFuncs:
     @staticmethod
     def SETCHAR():
         0
-#####
+############################################################
 ##
+# TYPE:
+##
+############################################################
     @staticmethod
     def TYPE():
         0
-#####
+############################################################
 ##
+# LABEL:     
+# JUMP:      
+# JUMPIFEQ:  
+# JUMPIFNEQ: 
+##
+############################################################
     @staticmethod
     def LABEL():
         0
@@ -643,8 +731,12 @@ class OpcodeFuncs:
     @staticmethod
     def JUMPIFNEQ():
         0
-#####
+############################################################
 ##
+# DPRINT: 
+# BREAK:  
+##
+############################################################
     @staticmethod
     def DPRINT():
         0
