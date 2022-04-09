@@ -1,2 +1,4 @@
 instruction_order1
 secondLF
+correct
+incorrectInt

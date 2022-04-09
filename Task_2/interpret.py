@@ -6,7 +6,9 @@
 # python3 interpret.py --source=name.src --input=name.in
 
 import xml.etree.ElementTree as ET # XML parsing module
-import sys # for command line arguments reading
+import sys
+
+from sqlalchemy import true # for command line arguments reading
 
 ############################################################
 #                         GLOBALS                          #
@@ -118,10 +120,10 @@ class AuxFuncs:
         l1.clear()
 
     #####
-    ## checks basic argument correctness
+    ## checks basic argument correctness (for further info check the comments inside the function)
     #<var>: var
     #<label>: label
-    #<symb>: int, bool, string, nil
+    #<symb>: int, bool, string, nil, var
     #<type>: type
     @staticmethod
     def check_arg(instr, opcode, num, type):
@@ -144,6 +146,8 @@ class AuxFuncs:
                 STDERR("ERROR[53]: {opcode} received an argument of incompatible type\n")
                 AuxFuncs.error_cleanup(53)
         # if argument's a variable, check its correct syntax (mainly frame, though this should already be done in parser)
+        # and also check if said variable actually exists in given frame
+        # this part is ignored for DEFVAR!
         if (((type == "var") or (symb_is_var == 1)) and (opcode != "DEFVAR")):
             if (instr[num-1].text[0:3] == "GF@"):
                 if (instr[num-1].text[3:len(instr[num-1].text)] not in global_frame):
@@ -168,6 +172,36 @@ class AuxFuncs:
                 AuxFuncs.error_cleanup(55)
 
     #####
+    ## mainly for arithmetics' purposes (ADD, SUB, MUL, IDIV)
+    ## checks if given attribute is of type int (returns its value) or not (error)
+    @staticmethod
+    def symb_int_check_and_ret(instr, opcode, num):
+        num = num - 1
+        global global_frame
+        global local_frame
+        global temporary_frame
+
+        if (instr[num].attrib['type'] == "int"):
+            if ((instr[num].text).isdigit() == 1):
+                return instr[num].text
+            else:
+                STDERR("ERROR[57]: bad operand value found: attribute of type 'int' does not contain an integer\n")
+                AuxFuncs.error_cleanup(57)
+        elif (instr[num].attrib['type'] == "var"):
+            if (instr[num].text[0:3] == "GF@"):
+                if (global_frame[instr[num].text[3:len(instr[num].text)]][0:2] == "i."):
+                    return global_frame[instr[num].text[3:len(instr[num].text)]][2:len(global_frame[instr[num].text[3:len(instr[num].text)]])]
+            elif (instr[num].text[0:3] == "LF@"):
+                if (local_frame[instr[num].text[3:len(instr[num].text)]][0:2] == "i."):
+                    return local_frame[instr[num].text[3:len(instr[num].text)]][2:len(global_frame[instr[num].text[3:len(instr[num].text)]])]
+            elif (instr[num].text[0:3] == "TF@"):
+                if (temporary_frame[instr[num].text[3:len(instr[num].text)]][0:2] == "i."):
+                    return temporary_frame[instr[num].text[3:len(instr[num].text)]][2:len(global_frame[instr[num].text[3:len(instr[num].text)]])]
+        else:
+            STDERR(f"ERROR[53]: {opcode} received an operant of unexpected type (expected 'int')\n")
+            AuxFuncs.error_cleanup(53)
+        
+    #####
     ## handles program exit on error
     @staticmethod
     def error_cleanup(ID):
@@ -176,16 +210,71 @@ class AuxFuncs:
 
         sys.exit(ID)
 
+    #####
+    ## returns the prefix for the type of the passed argument
     @staticmethod
     def get_prefix(instr, num):
+        num = num - 1
         if (instr[num].attrib['type'] == "int"):
-            return "i."
+            if ((instr[num].text).isdigit() == 1):
+                return "i."
+            else:
+                STDERR("ERROR[57]: found an ambiguous argument of type 'int' which doesn't contain an integer\n")
+                AuxFuncs.error_cleanup(57)
         elif (instr[num].attrib['type'] == "bool"):
-            return "b."
+            if (((instr[num].text) == "true") or ((instr[num].text) == "false")):
+                return "b."
+            else:
+                STDERR("ERROR[57]: found an ambiguous argument of type 'bool' which doesn't contain a boolean type\n")
+                AuxFuncs.error_cleanup(57)
+        elif (instr[num].attrib['type'] == "nil"):
+            if ((instr[num].text) == "nil"):
+                return "n."
+            else:
+                STDERR("ERROR[57]: found an ambiguous argument of type 'nil' which doesn't contain \"nil\"\n")
+                AuxFuncs.error_cleanup(57)
         elif (instr[num].attrib['type'] == "string"):
             return "s."
+        elif (instr[num].attrib['type'] == "var"):
+            if (instr[num].text[0:3] == "GF@"):
+                return (global_frame[instr[num].text[3:len(instr[num].text)]][0:2])
+            elif (instr[num].text[0:3] == "LF@"):
+                return (local_frame[instr[num].text[3:len(instr[num].text)]][0:2])
+            elif (instr[num].text[0:3] == "TF@"):
+                return (temporary_frame[instr[num].text[3:len(instr[num].text)]][0:2])
+
+    #####
+    ## returns the value of the passed argument
+    @staticmethod
+    def get_val(instr, num):
+        num = num - 1
+        if (instr[num].attrib['type'] == "int"):
+            if ((instr[num].text).isdigit() == 1):
+                return instr[num].text
+            else:
+                STDERR("ERROR[57]: found an ambiguous argument of type 'int' which doesn't contain an integer\n")
+                AuxFuncs.error_cleanup(57)
+        elif (instr[num].attrib['type'] == "bool"):
+            if (((instr[num].text) == "true") or ((instr[num].text) == "false")):
+                return instr[num].text
+            else:
+                STDERR("ERROR[57]: found an ambiguous argument of type 'bool' which doesn't contain a boolean type\n")
+                AuxFuncs.error_cleanup(57)
         elif (instr[num].attrib['type'] == "nil"):
-            return "n."
+            if ((instr[num].text) == "nil"):
+                return instr[num].text
+            else:
+                STDERR("ERROR[57]: found an ambiguous argument of type 'nil' which doesn't contain \"nil\"\n")
+                AuxFuncs.error_cleanup(57)
+        elif (instr[num].attrib['type'] == "string"):
+            return instr[num].text
+        elif (instr[num].attrib['type'] == "var"):
+            if (instr[num].text[0:3] == "GF@"):
+                return (global_frame[instr[num].text[3:len(instr[num].text)]][2:len(global_frame[instr[num].text[3:len(instr[num].text)]])])
+            elif (instr[num].text[0:3] == "LF@"):
+                return (local_frame[instr[num].text[3:len(instr[num].text)]][2:len(global_frame[instr[num].text[3:len(instr[num].text)]])])
+            elif (instr[num].text[0:3] == "TF@"):
+                return (temporary_frame[instr[num].text[3:len(instr[num].text)]][2:len(global_frame[instr[num].text[3:len(instr[num].text)]])])
 
 ############################################################
 #                    OPCODES' FUNCTIONS                    #
@@ -205,7 +294,7 @@ class OpcodeFuncs:
         AuxFuncs.check_arg(instr, "MOVE", 1, "var")
         AuxFuncs.check_arg(instr, "MOVE", 2, "symb")
 
-        pre = AuxFuncs.get_prefix(instr, 1)
+        pre = AuxFuncs.get_prefix(instr, 2)
 
         if (instr[0].text[0:3] == "GF@"):
             global_frame[instr[0].text[3:len(instr[0].text)]] = pre + str(instr[1].text)
@@ -285,7 +374,7 @@ class OpcodeFuncs:
     def PUSHS(instr):
         AuxFuncs.check_arg(instr, "PUSHS", 1, "symb")
 
-        pre = AuxFuncs.get_prefix(instr, 0)
+        pre = AuxFuncs.get_prefix(instr, 2)
 
         Data_stack.append(pre + str(instr[0].text))
     @staticmethod
@@ -304,35 +393,196 @@ class OpcodeFuncs:
         del Data_stack[-1] #remove the copied value at top of stack
 #####
 ##
+# ADD:      not tested
+# SUB:      not tested
+# MUL:      not tested
+# IDIV:     not tested
+# LT:       not tested
+# GT:       not tested
+# EQ:       not tested
+# AND:      not tested
+# OR:       not tested
+# NOT:      not tested
+# INT2CHAR: not tested
+# STRI2INT: not tested
     @staticmethod
-    def ADD():
+    def ADD(instr):
+        AuxFuncs.check_arg(instr, "ADD", 1, "var")
+        AuxFuncs.check_arg(instr, "ADD", 2, "symb")
+        AuxFuncs.check_arg(instr, "ADD", 3, "symb")
+        
+        symb1 = AuxFuncs.symb_int_check_and_ret(instr, "ADD", 2)
+        symb2 = AuxFuncs.symb_int_check_and_ret(instr, "ADD", 3)
+
+        if (instr[0].text[0:3] == "GF@"):
+            global_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) + int(symb2)))
+        elif (instr[0].text[0:3] == "LF@"):
+            local_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) + int(symb2)))
+        elif (instr[0].text[0:3] == "TF@"):
+            temporary_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) + int(symb2)))
+    @staticmethod
+    def SUB(instr):
+        AuxFuncs.check_arg(instr, "SUB", 1, "var")
+        AuxFuncs.check_arg(instr, "SUB", 2, "symb")
+        AuxFuncs.check_arg(instr, "SUB", 3, "symb")
+        
+        symb1 = AuxFuncs.symb_int_check_and_ret(instr, "SUB", 2)
+        symb2 = AuxFuncs.symb_int_check_and_ret(instr, "SUB", 3)
+
+        if (instr[0].text[0:3] == "GF@"):
+            global_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) - int(symb2)))
+        elif (instr[0].text[0:3] == "LF@"):
+            local_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) - int(symb2)))
+        elif (instr[0].text[0:3] == "TF@"):
+            temporary_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) - int(symb2)))
+    @staticmethod
+    def MUL(instr):
+        AuxFuncs.check_arg(instr, "MUL", 1, "var")
+        AuxFuncs.check_arg(instr, "MUL", 2, "symb")
+        AuxFuncs.check_arg(instr, "MUL", 3, "symb")
+        
+        symb1 = AuxFuncs.symb_int_check_and_ret(instr, "MUL", 2)
+        symb2 = AuxFuncs.symb_int_check_and_ret(instr, "MUL", 3)
+
+        if (instr[0].text[0:3] == "GF@"):
+            global_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) * int(symb2)))
+        elif (instr[0].text[0:3] == "LF@"):
+            local_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) * int(symb2)))
+        elif (instr[0].text[0:3] == "TF@"):
+            temporary_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) * int(symb2)))
+    @staticmethod
+    def IDIV(instr):
+        AuxFuncs.check_arg(instr, "IDIV", 1, "var")
+        AuxFuncs.check_arg(instr, "IDIV", 2, "symb")
+        AuxFuncs.check_arg(instr, "IDIV", 3, "symb")
+        
+        symb1 = AuxFuncs.symb_int_check_and_ret(instr, "IDIV", 2)
+        symb2 = AuxFuncs.symb_int_check_and_ret(instr, "IDIV", 3)
+
+        if (instr[0].text[0:3] == "GF@"):
+            global_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) // int(symb2)))
+        elif (instr[0].text[0:3] == "LF@"):
+            local_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) // int(symb2)))
+        elif (instr[0].text[0:3] == "TF@"):
+            temporary_frame[instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) // int(symb2)))
+    @staticmethod
+    def LT(instr):
+        AuxFuncs.check_arg(instr, "LT", 1, "var")
+        AuxFuncs.check_arg(instr, "LT", 2, "symb")
+        AuxFuncs.check_arg(instr, "LT", 3, "symb")
+
+        type1 = AuxFuncs.get_prefix(instr, 2)
+        type2 = AuxFuncs.get_prefix(instr, 3)
+
+        val1 = AuxFuncs.get_val(instr, 2)
+        val2 = AuxFuncs.get_val(instr, 3)
+
+        if ((type1 == "i.") and (type2 == "i.")):
+            if (int(val1) < int(val2)):
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.true"
+            else:
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.false"
+        elif ((type1 == "b.") and (type2 == "b.")):
+            if ((val1 == "true") or ((val1 == "false") and (val2 == "false"))):
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.false"
+            else: #the only time val1 can be less than val2 is if val1=false and val2=true 
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.true"
+        elif ((type1 == "s.") and (type2 == "s.")):
+            if (val1 < val2): #python handles string comparisons lexicographically already
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.true"
+            else:
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.false"
+        elif ((type1 == "n.") or (type2 == "n.")):
+            STDERR("ERROR[53]: LT received 'nil' as an attribute\n")
+            AuxFuncs.error_cleanup(53)
+        else:
+            STDERR("ERROR[53]: LT received an attempt at comparing two attributes of different types\n")
+            AuxFuncs.error_cleanup(53)
+    @staticmethod
+    def GT(instr):
+        AuxFuncs.check_arg(instr, "LT", 1, "var")
+        AuxFuncs.check_arg(instr, "LT", 2, "symb")
+        AuxFuncs.check_arg(instr, "LT", 3, "symb")
+
+        type1 = AuxFuncs.get_prefix(instr, 2)
+        type2 = AuxFuncs.get_prefix(instr, 3)
+
+        val1 = AuxFuncs.get_val(instr, 2)
+        val2 = AuxFuncs.get_val(instr, 3)
+
+        if ((type1 == "i.") and (type2 == "i.")):
+            if (int(val1) > int(val2)):
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.true"
+            else:
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.false"
+        elif ((type1 == "b.") and (type2 == "b.")):
+            if ((val1 == "false") or ((val1 == "true") and (val2 == "true"))):
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.false"
+            else: #the only time val1 can be more than val2 is if val1=true and val2=false 
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.true"
+        elif ((type1 == "s.") and (type2 == "s.")):
+            if (val1 > val2): #python handles string comparisons lexicographically already
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.true"
+            else:
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.false"
+        elif ((type1 == "n.") or (type2 == "n.")):
+            STDERR("ERROR[53]: LT received 'nil' as an attribute\n")
+            AuxFuncs.error_cleanup(53)
+        else:
+            STDERR("ERROR[53]: LT received an attempt at comparing two attributes of different types\n")
+            AuxFuncs.error_cleanup(53)
+    @staticmethod
+    def EQ(instr):
+        AuxFuncs.check_arg(instr, "LT", 1, "var")
+        AuxFuncs.check_arg(instr, "LT", 2, "symb")
+        AuxFuncs.check_arg(instr, "LT", 3, "symb")
+
+        type1 = AuxFuncs.get_prefix(instr, 2)
+        type2 = AuxFuncs.get_prefix(instr, 3)
+
+        val1 = AuxFuncs.get_val(instr, 2)
+        val2 = AuxFuncs.get_val(instr, 3)
+
+        if ((type1 == "i.") and (type2 == "i.")):
+            if (int(val1) == int(val2)):
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.true"
+            else:
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.false"
+        elif ((type1 == "b.") and (type2 == "b.")):
+            if (((val1 == "true") and (val2 == "true")) or ((val1 == "false") and (val2 == "false"))):
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.true"
+            else:
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.false"
+        elif ((type1 == "s.") and (type2 == "s.")):
+            if (val1 == val2): #python handles string comparisons lexicographically already
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.true"
+            else:
+                global_frame[instr[0].text[3:len(instr[0].text)]] = "b.false"
+        elif ((type1 == "n.") or (type2 == "n.")):
+            STDERR("ERROR[53]: LT received 'nil' as an attribute\n")
+            AuxFuncs.error_cleanup(53)
+        else:
+            STDERR("ERROR[53]: LT received an attempt at comparing two attributes of different types\n")
+            AuxFuncs.error_cleanup(53)
+    @staticmethod
+    def AND(instr):
+        AuxFuncs.check_arg(instr, "LT", 1, "var")
+        AuxFuncs.check_arg(instr, "LT", 2, "symb")
+        AuxFuncs.check_arg(instr, "LT", 3, "symb")
+
         0
     @staticmethod
-    def SUB():
+    def OR(instr):
+        AuxFuncs.check_arg(instr, "LT", 1, "var")
+        AuxFuncs.check_arg(instr, "LT", 2, "symb")
+        AuxFuncs.check_arg(instr, "LT", 3, "symb")
+
         0
     @staticmethod
-    def MUL():
-        0
-    @staticmethod
-    def IDIV():
-        0
-    @staticmethod
-    def LT():
-        0
-    @staticmethod
-    def GT():
-        0
-    @staticmethod
-    def EQ():
-        0
-    @staticmethod
-    def AND():
-        0
-    @staticmethod
-    def OR():
-        0
-    @staticmethod
-    def NOT():
+    def NOT(instr):
+        AuxFuncs.check_arg(instr, "LT", 1, "var")
+        AuxFuncs.check_arg(instr, "LT", 2, "symb")
+
         0
     @staticmethod
     def INT2CHAR():
@@ -355,11 +605,11 @@ class OpcodeFuncs:
             if (instr[0].text[0:3] == "GF@"):
                 STDOUT(str(global_frame[instr[0].text[3:len(instr[0].text)]][2:len(global_frame[instr[0].text[3:len(instr[0].text)]])]))
             elif (instr[0].text[0:3] == "LF@"):
-                STDOUT(str(local_frame[instr[0].text[3:len(instr[0].text)]][2:len(local_frame[instr[0].text[3:len(instr[0].text)]])]))
+                STDOUT(str(local_frame[instr[0].text[3:len(instr[0].text)]][2:len(global_frame[instr[0].text[3:len(instr[0].text)]])]))
             elif (instr[0].text[0:3] == "TF@"):
-                STDOUT(str(temporary_frame[instr[0].text[3:len(instr[0].text)]][2:len(temporary_frame[instr[0].text[3:len(instr[0].text)]])]))
+                STDOUT(str(temporary_frame[instr[0].text[3:len(instr[0].text)]][2:len(global_frame[instr[0].text[3:len(instr[0].text)]])]))
         else:
-            STDOUT(str(instr[0].text[3:len(instr[0].text)]))
+            STDOUT(str(instr[0].text))
 #####
 ##
     @staticmethod
