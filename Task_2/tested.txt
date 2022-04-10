@@ -1,4 +1,12 @@
-instruction_order1
-secondLF
-correct
-incorrectInt
+##TESTED:
+* duplicate_order
+* instruction_order1
+* (secondLF)
+* correct
+* incorrectInt
+* RelationalOps
+* BoolOps
+* read
+
+##TO TEST:
+

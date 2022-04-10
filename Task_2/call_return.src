@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<program language="IPPcode22" name="call_return">
+	<instruction order="1" opcode="DEFVAR">
+		<arg1 type="var">GF@var1</arg1>
+	</instruction>
+	<instruction order="5" opcode="MOVE">
+		<arg1 type="var">GF@var1</arg1>
+		<arg2 type="int">50</arg2>
+	</instruction>
+##################################################
+	<instruction order="10" opcode="CALL">
+		<arg1 type="label">mulby2</arg1>
+	</instruction>
+
+	<instruction order="15" opcode="WRITE">
+        <arg1 type="string">Var after call is:  </arg1>
+    </instruction>
+	<instruction order="20" opcode="WRITE">
+        <arg1 type="var">GF@var1</arg1>
+    </instruction>
+
+	<instruction order="25" opcode="EXIT">
+        <arg1 type="int">0</arg1>
+    </instruction>
+##################################################
+	<instruction order="30" opcode="LABEL">
+		<arg1 type="label">mulby2</arg1>
+	</instruction>
+
+	<instruction order="35" opcode="WRITE">
+        <arg1 type="string">Var before call is:  </arg1>
+    </instruction>
+	<instruction order="40" opcode="WRITE">
+        <arg1 type="var">GF@var1</arg1>
+    </instruction>
+	<instruction order="45" opcode="WRITE">
+        <arg1 type="string">&#xA;</arg1>
+    </instruction>
+
+	<instruction order="50" opcode="MUL">
+        <arg1 type="var">GF@var1</arg1>
+        <arg2 type="var">GF@var1</arg2>
+        <arg3 type="int">2</arg3>
+    </instruction>
+
+	<instruction order="55" opcode="RETURN">
+    </instruction>
+</program>
