@@ -7,21 +7,10 @@
 
 
     ------------------------------------------------------------
-    TODO: run with --help for more info
+    run with --help for more info
     ------------------------------------------------------------
     cat test.txt | php8.1 parse.php
     ------------------------------------------------------------
-**/
-
-/**
-    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    !                           ATTETION                       !
-    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    I have found out I've done more than necessary for this
-    script, namely saving variables into an array and checking
-    whether they already exist within given frame before creating 
-    them. This is NOT a function of this project's parser, and
-    therefore should be erased and carried on into interpreter.
 **/
 
 ini_set('display_errors', 'stderr'); //to print warnings to stderr
