@@ -205,11 +205,11 @@ class AuxFuncs:
         global temporary_frame
 
         if (instr[num].attrib['type'] == "int"):
-            if ((instr[num].text).isdigit() == 1):
+            if ((instr[num].text).lstrip("-").isdigit() == 1):
                 return instr[num].text
             else:
-                STDERR("ERROR[57]: bad operand value found: attribute of type 'int' does not contain an integer\n")
-                AuxFuncs.error_cleanup(57)
+                STDERR("ERROR[32]: bad operand value found: attribute of type 'int' does not contain an integer\n")
+                AuxFuncs.error_cleanup(32)
         elif (instr[num].attrib['type'] == "var"):
             if (globals()[frame][instr[num].text[3:len(instr[num].text)]][0:2] == "i."):
                 return globals()[frame][instr[num].text[3:len(instr[num].text)]][2:len(globals()[frame][instr[num].text[3:len(instr[num].text)]])]
@@ -235,23 +235,23 @@ class AuxFuncs:
         frame = AuxFuncs.get_frame(instr, num)
         num = num - 1
         if (instr[num].attrib['type'] == "int"):
-            if ((instr[num].text).isdigit() == 1):
+            if ((instr[num].text).lstrip("-").isdigit() == 1):
                 return "i."
             else:
-                STDERR("ERROR[57]: found an ambiguous argument of type 'int' which doesn't contain an integer\n")
-                AuxFuncs.error_cleanup(57)
+                STDERR("ERROR[32]: found an ambiguous argument of type 'int' which doesn't contain an integer\n")
+                AuxFuncs.error_cleanup(32)
         elif (instr[num].attrib['type'] == "bool"):
             if (((instr[num].text) == "true") or ((instr[num].text) == "false")):
                 return "b."
             else:
-                STDERR("ERROR[57]: found an ambiguous argument of type 'bool' which doesn't contain a boolean type\n")
-                AuxFuncs.error_cleanup(57)
+                STDERR("ERROR[32]: found an ambiguous argument of type 'bool' which doesn't contain a boolean type\n")
+                AuxFuncs.error_cleanup(32)
         elif (instr[num].attrib['type'] == "nil"):
             if ((instr[num].text) == "nil"):
                 return "n."
             else:
-                STDERR("ERROR[57]: found an ambiguous argument of type 'nil' which doesn't contain \"nil\"\n")
-                AuxFuncs.error_cleanup(57)
+                STDERR("ERROR[32]: found an ambiguous argument of type 'nil' which doesn't contain \"nil\"\n")
+                AuxFuncs.error_cleanup(32)
         elif (instr[num].attrib['type'] == "string"):
             return "s."
         elif (instr[num].attrib['type'] == "var"):
@@ -268,23 +268,23 @@ class AuxFuncs:
         num = num - 1
 
         if (instr[num].attrib['type'] == "int"):
-            if ((instr[num].text).isdigit() == 1):
+            if ((instr[num].text).lstrip("-").isdigit() == 1):
                 return instr[num].text
             else:
-                STDERR("ERROR[57]: found an ambiguous argument of type 'int' which doesn't contain an integer\n")
-                AuxFuncs.error_cleanup(57)
+                STDERR("ERROR[32]: found an ambiguous argument of type 'int' which doesn't contain an integer\n")
+                AuxFuncs.error_cleanup(32)
         elif (instr[num].attrib['type'] == "bool"):
             if (((instr[num].text) == "true") or ((instr[num].text) == "false")):
                 return instr[num].text
             else:
-                STDERR("ERROR[57]: found an ambiguous argument of type 'bool' which doesn't contain a boolean type\n")
-                AuxFuncs.error_cleanup(57)
+                STDERR("ERROR[32]: found an ambiguous argument of type 'bool' which doesn't contain a boolean type\n")
+                AuxFuncs.error_cleanup(32)
         elif (instr[num].attrib['type'] == "nil"):
             if ((instr[num].text) == "nil"):
                 return instr[num].text
             else:
-                STDERR("ERROR[57]: found an ambiguous argument of type 'nil' which doesn't contain \"nil\"\n")
-                AuxFuncs.error_cleanup(57)
+                STDERR("ERROR[32]: found an ambiguous argument of type 'nil' which doesn't contain \"nil\"\n")
+                AuxFuncs.error_cleanup(32)
         elif ((instr[num].attrib['type'] == "string") or (instr[num].attrib['type'] == "label")):
             return instr[num].text
         elif (instr[num].attrib['type'] == "var"):
@@ -702,8 +702,8 @@ class OpcodeFuncs:
         val = AuxFuncs.get_val(instr, 2)
 
         if (type != "i."):
-            STDERR("ERROR[57]: INT2CHAR encountered an attempt at converting a value that isn't an integer or in Unicode format\n")
-            AuxFuncs.error_cleanup(57)
+            STDERR("ERROR[32]: INT2CHAR encountered an attempt at converting a value that isn't an integer or in Unicode format\n")
+            AuxFuncs.error_cleanup(32)
         elif int(val) not in range(0, 1114111):
             STDERR("ERROR[58]: INT2CHAR encountered an attempt at converting a value out of possible range\n")
             AuxFuncs.error_cleanup(58)
@@ -724,8 +724,8 @@ class OpcodeFuncs:
         symb2 = AuxFuncs.get_val(instr, 3)
 
         if (type != "i."):
-            STDERR("ERROR[57]: STRI2INT received a value that isn't an integer as its second argument\n")
-            AuxFuncs.error_cleanup(57)
+            STDERR("ERROR[32]: STRI2INT received a value that isn't an integer as its second argument\n")
+            AuxFuncs.error_cleanup(32)
         elif int(symb2) not in range(0, len(symb1)):
             STDERR("ERROR[58]: STRI2INT encountered an attempt at accessing a character outside of string range\n")
             AuxFuncs.error_cleanup(58)
@@ -747,11 +747,11 @@ class OpcodeFuncs:
         loaded = input()
         
         if (instr[1].text == "int"):
-            if (loaded.isdigit() == 1):
+            if (loaded.lstrip("-").isdigit() == 1):
                 globals()[frame][instr[0].text[3:len(instr[0].text)]] = "i." + str(loaded)
             else:
-                STDERR("ERROR[57]: found an ambiguous argument of type 'int' which doesn't contain an integer\n")
-                AuxFuncs.error_cleanup(57)
+                STDERR("ERROR[32]: found an ambiguous argument of type 'int' which doesn't contain an integer\n")
+                AuxFuncs.error_cleanup(32)
         elif (instr[1].text == "bool"):
             if (((loaded.lower() == "true")) or (loaded.lower() == "false")):
                 globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b." + str(loaded.lower())
@@ -760,8 +760,8 @@ class OpcodeFuncs:
             elif (loaded == "0"):
                 globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.false"
             else:
-                STDERR("ERROR[57]: found an ambiguous argument of type 'bool' which doesn't contain a boolean value\n")
-                AuxFuncs.error_cleanup(57)
+                STDERR("ERROR[32]: found an ambiguous argument of type 'bool' which doesn't contain a boolean value\n")
+                AuxFuncs.error_cleanup(32)
         elif (instr[1].text == "string"):
             globals()[frame][instr[0].text[3:len(instr[0].text)]] = "s." + str(loaded)
 ############################################################
@@ -803,8 +803,8 @@ class OpcodeFuncs:
         if ((type1 == "s.") and (type2 == "s.")):
             globals()[frame][instr[0].text[3:len(instr[0].text)]] = "s." + string1 + string2
         else:
-            STDERR("ERROR[57]: CONCAT received at least one argument not of type 'string'\n")
-            AuxFuncs.error_cleanup(57)
+            STDERR("ERROR[32]: CONCAT received at least one argument not of type 'string'\n")
+            AuxFuncs.error_cleanup(32)
 ############################################################
     @staticmethod
     def STRLEN(instr):
@@ -820,8 +820,8 @@ class OpcodeFuncs:
         if (type == "s."):
             globals()[frame][instr[0].text[3:len(instr[0].text)]] = "i." + str(len(string))
         else:
-            STDERR("ERROR[57]: STRLEN received an argument not of type 'string'\n")
-            AuxFuncs.error_cleanup(57)
+            STDERR("ERROR[32]: STRLEN received an argument not of type 'string'\n")
+            AuxFuncs.error_cleanup(32)
 ############################################################
     @staticmethod
     def GETCHAR(instr):
@@ -838,8 +838,8 @@ class OpcodeFuncs:
         position = AuxFuncs.get_val(instr, 3)
 
         if ((type1 != "s.") or (type2 != "i.")):
-            STDERR("ERROR[57]: GETCHAR received either non-string as second argument or non-integer as third argument\n")
-            AuxFuncs.error_cleanup(57)
+            STDERR("ERROR[32]: GETCHAR received either non-string as second argument or non-integer as third argument\n")
+            AuxFuncs.error_cleanup(32)
         elif int(position) not in range(0, len(string)):
             STDERR("ERROR[58]: GETCHAR encountered an attempt at accessing a character outside of string range\n")
             AuxFuncs.error_cleanup(58)
@@ -862,8 +862,8 @@ class OpcodeFuncs:
         newchar = AuxFuncs.get_val(instr, 3)
 
         if ((type1 != "s.") or (type2 != "i.") or (type3 != "s.")):
-            STDERR("ERROR[57]: SETCHAR received either non-string as first or third argument or non-integer as second argument\n")
-            AuxFuncs.error_cleanup(57)
+            STDERR("ERROR[32]: SETCHAR received either non-string as first or third argument or non-integer as second argument\n")
+            AuxFuncs.error_cleanup(32)
         elif int(position) not in range(0, len(globals()[frame][instr[0].text[3:len(instr[0].text)]])):
             STDERR("ERROR[58]: SETCHAR encountered an attempt at accessing a character outside of string range\n")
             AuxFuncs.error_cleanup(58)
@@ -1112,7 +1112,7 @@ elif ((file_exists(f'{input_file}') == 0) and (input_file != "")):
 
 #print(f"--Source file:  {source_file}")
 #print(f"--Input file:   {input_file}")
-print(f"\n\n\n")
+#print(f"\n\n\n")
 
 if (input_file != ""):
     sys.stdin = open(f'{input_file}', 'r')
@@ -1170,8 +1170,8 @@ while instruct_position < instruct_cnt:
 ############################################################
 #                     AUXILIARY PRINTS                     #
 ############################################################
-print(f"\n\n\n")
+#print(f"\n\n\n")
 
-OpcodeFuncs.BREAK("NULL", instrs_done)
+#OpcodeFuncs.BREAK("NULL", instrs_done)
 
 #print(f"") #newline

@@ -42,7 +42,10 @@ enum ErrHandles: int {
  */
 class _Auxiliary {
     public static function writeout_loadargs_result(){
-        echo "directory:    ";
+        echo "Source files found:  ";
+        print_r(_general::$source_files);
+
+        echo "\ndirectory:    ";
         echo _general::$directory;
         echo "\nrecursive:    ";
         echo _general::$recursive;
@@ -59,6 +62,15 @@ class _Auxiliary {
         echo "\nnoclean:      ";
         echo _general::$noclean;
         echo "\n";
+
+        echo "\nRC Results: ";
+        var_dump(_general::$RCresults);
+        echo "resultsParse: ";
+        var_dump(_general::$resultsParse);
+        echo "resultsInt: ";
+        var_dump(_general::$resultsInt);
+        echo "resultsBoth: ";
+        var_dump(_general::$resultsBoth);
     }
 }
 
@@ -82,6 +94,16 @@ class _general {
     public static $int_only = FALSE;
     public static $jexampath = "/pub/courses/ipp/jexamxml/";
     public static $noclean = FALSE;
+
+    public static $source_files = array();
+
+    public static $html_output;
+
+    // Array of test results
+    public static $resultsParse = [];
+    public static $resultsInt = [];
+    public static $resultsBoth = [];
+    public static $RCresults = [];
 
     public static $help_msg = // a static string printed out when '--help' is called
 "Script of type filter (parse.php in PHP 8.1) loads a source file written in IPPcode22 from stdin, checks the lexical
@@ -120,11 +142,16 @@ and syntactical correctness of written code and prints out its XML reprezentatio
                 jexamxml don't exist or are inaccessible\n";
 
 
+/** 
+* 
+**/
     public static function arg_find($argv, $argument){
         if (($argument == "recursive") || ($argument == "parse-only") || ($argument == "int-only") || ($argument == "noclean")){
             $argsearch = preg_grep("/^--$argument$/", $argv);
+            $argpos = array_keys($argsearch);
         } else if (($argument == "directory") || ($argument == "parse-script") || ($argument == "int-script") || ($argument == "jexampath")){
             $argsearch = preg_grep("/^--$argument=.+$/", $argv);
+            $argpos = array_keys($argsearch);
         }
 
         if ($argument == "parse-only"){
@@ -149,46 +176,46 @@ and syntactical correctness of written code and prints out its XML reprezentatio
             if(count($argsearch) == 1){ // if argument found only once
                 _general::$argsfound_cnt++;
                 if ($argument == "directory"){ // directory
-                    $dirpath = substr($argsearch[_general::$argsfound_cnt], 12); // from 13th character (after '--directory=')
+                    $dirpath = substr($argsearch[$argpos[0]], 12); // from 13th character (after '--directory=')
                     $dirpath = realpath($dirpath);
 
                     if (is_dir($dirpath) == false){
-                        fputs(STDERR, "ERROR[?]: directory received in argument '--directory=' doesn't exist\n");
-                        exit(11);
+                        fputs(STDERR, "ERROR[41]: directory received in argument '--directory=' doesn't exist\n");
+                        exit(ErrHandles::FileDirNotF->value);
                     }
 
                     _general::${$argument} = realpath($dirpath);
                 } else if ($argument == "parse_script"){ // parse-script
-                    $parser = substr($argsearch[_general::$argsfound_cnt], 15); // from 16th character (after '--parse-script=')
+                    $parser = substr($argsearch[$argpos[0]], 15); // from 16th character (after '--parse-script=')
 
                     if (file_exists($parser) == false){
-                        fputs(STDERR, "ERROR[?]: file received in argument '--parse-script=' doesn't exist\n");
-                        exit(11);
+                        fputs(STDERR, "ERROR[41]: file received in argument '--parse-script=' doesn't exist\n");
+                        exit(ErrHandles::FileDirNotF->value);
                     }
 
                     _general::${$argument} = $parser;
                 } else if ($argument == "int_script"){ // int-script
-                    $interpreter = substr($argsearch[_general::$argsfound_cnt], 13); // from 14th character (after '--int-script=')
+                    $interpreter = substr($argsearch[$argpos[0]], 13); // from 14th character (after '--int-script=')
 
                     if (file_exists($interpreter) == false){
-                        fputs(STDERR, "ERROR[?]: file received in argument '--int-script=' doesn't exist\n");
-                        exit(11);
+                        fputs(STDERR, "ERROR[41]: file received in argument '--int-script=' doesn't exist\n");
+                        exit(ErrHandles::FileDirNotF->value);
                     }
 
                     _general::${$argument} = $interpreter;
                 } else if ($argument == "jexampath"){ // jexampath
-                    $jexpath = substr($argsearch[_general::$argsfound_cnt], 12); // from 13th character (after '--jexampath=')
+                    $jexpath = substr($argsearch[$argpos[0]], 12); // from 13th character (after '--jexampath=')
                     $jexpath = realpath($jexpath);
 
                     if (is_dir($jexpath) == false){
-                        fputs(STDERR, "ERROR[?]: directory received in argument '--jexampath=' doesn't exist\n");
-                        exit(11);
+                        fputs(STDERR, "ERROR[41]: directory received in argument '--jexampath=' doesn't exist\n");
+                        exit(ErrHandles::FileDirNotF->value);
                     }
 
-                    _general::${$argument} = realpath($jexpath);
+                    _general::${$argument} = realpath($jexpath) . "/";
                 }
             } else if(count($argsearch) > 1){
-                fputs(STDERR, "ERROR[10]: Script received the '$argument' parameter more than once\n");
+                fputs(STDERR, "ERROR[10]: script received the '$argument' parameter more than once\n");
                 exit (ErrHandles::ParamErr->value);
             }
         }
@@ -196,9 +223,28 @@ and syntactical correctness of written code and prints out its XML reprezentatio
         Sort($argsearch);
     }
 
-    /** SCRIPT PARAMETERS HANDLING **/
+/** 
+* 
+**/
+    public static function args_compatibility_check($argv){
+        if (_general::$parse_only == TRUE){
+            if ((_general::$int_only == TRUE) || (count(preg_grep("/^--int-script=.+$/", $argv)) >= 1)){
+                fputs(STDERR, "ERROR[10]: script discovered an attempt at using a forbidden parameter combination\n");
+                exit(ErrHandles::ParamErr->value);
+            }
+        } else if (_general::$int_only == TRUE) {
+            if ((_general::$parse_only == TRUE) || (count(preg_grep("/^--parse-script=.+$/", $argv)) >= 1) || (count(preg_grep("/^--jexampath=.+$/", $argv)) >= 1)){
+                fputs(STDERR, "ERROR[10]: script discovered an attempt at using a forbidden parameter combination\n");
+                exit(ErrHandles::ParamErr->value);
+            }
+        }
+    }
+
+/** SCRIPT PARAMETERS HANDLING 
+ * 
+**/
     public static function load_args($argv, $argc){
-/* find '--help' */
+        // find '--help'
         if(count(preg_grep("/^--help$/", $argv)) == 1){
             if ($argc == 2){
                 fputs(STDOUT, _general::$help_msg);
@@ -227,529 +273,297 @@ and syntactical correctness of written code and prints out its XML reprezentatio
         _general::arg_find($argv, "int-only");
         _general::arg_find($argv, "jexampath");
         _general::arg_find($argv, "noclean");
+
+        _general::args_compatibility_check($argv);
+    }
+
+/** 
+* 
+**/
+    public static function load_testssrc(){
+        if (_general::$recursive == TRUE){
+            /** NOTE: - practically directly ripped off https://www.php.net/manual/en/class.recursivedirectoryiterator.php
+            *         - go check RecursiveDirectoryIterator out, it's awesome   **/
+            $Directory = new RecursiveDirectoryIterator(_general::$directory);
+            $Iterator = new RecursiveIteratorIterator($Directory);
+            $Regex = new RegexIterator($Iterator, '/^.+\.src$/i', RecursiveRegexIterator::GET_MATCH);
+            
+            foreach ($Regex as $file){
+                _general::$source_files = array_merge(_general::$source_files, $file);
+            }
+        } else {
+            _general::$source_files = glob(_general::$directory."/*.src");
+        }
+    }
+
+/** 
+*   - saves results into their respective arrays found at the beginning of class _general
+**/
+    public static function run_tests(){
+    // parsing
+        if (_general::$int_only == FALSE){
+            foreach(_general::$source_files as $file){
+                $file = substr($file, 0, -4); #cut away the last four characters (".src")
+                
+                $parser = _general::$parse_script;
+                $rc = 0;
+                $output_dump = array();
+
+                exec("php8.1 $parser < $file.src > $file-my_garbage.out;", $output_dump, $rc);
+                $newfile = fopen("$file-my_garbage.rc", "w");
+                fwrite($newfile, $rc);
+                fclose($newfile);
+
+                $rc_orig = file_get_contents("$file.rc");
+
+                if (_general::$parse_only == TRUE){ // if parse-only, there's an XML to compare with
+                    if ($rc_orig == $rc){
+                        array_push(_general::$RCresults, "true");
+                    } else {
+                        array_push(_general::$RCresults, "false");
+                    }
+
+                    $jexamjar = _general::$jexampath . "jexamxml.jar";
+                    $jexamops = _general::$jexampath . "options";
+    
+                    exec("java -jar $jexamjar \"$file.out\" \"$file-my_garbage.out\" /dev/null  /D $jexamops", $output, $diff);
+                    if($diff == "0\n"){
+                        array_push(_general::$resultsParse, "true");
+                    } else {
+                        $outFile = file_get_contents("$file.out");
+                        $customOut = file_get_contents("$file-my_garbage.out");
+                        if($outFile == $customOut){
+                            array_push(_general::$resultsParse, "true");
+                        } else {
+                            array_push(_general::$resultsParse, "false");
+                        }
+                    }
+                }
+            // interpreting after parsing done
+                if (_general::$parse_only == FALSE){
+                    $detected_error = false;
+                    $interpreter = _general::$int_script;
+
+                    if(is_file("$file.in")){
+                        exec("python3.8 $interpreter --source=$file-my_garbage.out --input=$file.in;", $output_dump, $rc);
+                        if ($rc == 0){
+                            $output_dump = shell_exec("python3.8 $interpreter --source=$file-my_garbage.out --input=$file.in;");
+                        } else {
+                            $detected_error = true;
+                        }
+                    } else {
+                        exec("python3.8 $interpreter --source=$file-my_garbage.out;", $output_dump, $rc);
+                        $output_dump = shell_exec("python3.8 $interpreter --source=$file-my_garbage.out;");
+                    }
+
+                    if(is_file("$file-my_garbage.rc")){ 
+                        unlink("$file-my_garbage.rc"); 
+                    }
+                    $newfile = fopen("$file-my_garbage.rc", "w");
+                    fwrite($newfile, $rc);
+                    fclose($newfile);
+
+                    if ($rc_orig == $rc){
+                        array_push(_general::$RCresults, "true");
+                    } else {
+                        array_push(_general::$RCresults, "false");
+                    }
+
+                    $outFile = file_get_contents("$file.out");
+
+                    if(($outFile == $output_dump) || ($detected_error == true)){
+                        array_push(_general::$resultsBoth, "true");
+                    } else {
+                        array_push(_general::$resultsBoth, "false");
+                    }
+                }
+                // always clean up after yourself
+                _general::clean_up_garbage($file);
+            }
+        }
+    // interpreting if no parsing done
+        else if (_general::$parse_only == FALSE){
+            foreach(_general::$source_files as $file){
+                $file = substr($file, 0, -4); #cut away the last four characters (".src")
+                    
+                $parser = _general::$parse_script;
+                $rc = 0;
+                $output_dump = array();
+
+                $detected_error = false;
+                $interpreter = _general::$int_script;
+
+                $rc_orig = file_get_contents("$file.rc");
+
+                if(is_file("$file.in")){
+                    exec("python3.8 $interpreter --source=$file.src --input=$file.in;", $output_dump, $rc);
+                    if ($rc == 0){
+                        $output_dump = shell_exec("python3.8 $interpreter --source=$file.src --input=$file.in;");
+                    } else {
+                        $detected_error = true;
+                    }
+                } else {
+                    exec("python3.8 $interpreter --source=$file.src;", $output_dump, $rc);
+                    $output_dump = shell_exec("python3.8 $interpreter --source=$file.src;");
+                }
+
+                $newfile = fopen("$file-my_garbage.rc", "w");
+                fwrite($newfile, $rc);
+                fclose($newfile);
+
+                if ($rc_orig == $rc){
+                    array_push(_general::$RCresults, "true");
+                } else {
+                    array_push(_general::$RCresults, "false");
+                }
+
+                $outFile = file_get_contents("$file.out");
+
+                if(($outFile == $output_dump) || ($detected_error == true)){
+                    array_push(_general::$resultsInt, "true");
+                } else {
+                    array_push(_general::$resultsInt, "false");
+                }
+
+                // always clean up after yourself
+                _general::clean_up_garbage($file);
+            }
+        }
+    }
+
+/** 
+ * 
+**/
+    public static function clean_up_garbage($file){
+        if (_general::$noclean == FALSE){
+            if(is_file("$file-my_garbage.src")){ unlink("$file-my_garbage.src"); }
+            if(is_file("$file-my_garbage.in")){ unlink("$file-my_garbage.in"); }
+            if(is_file("$file-my_garbage.out")){ unlink("$file-my_garbage.out"); }
+            if(is_file("$file-my_garbage.rc")){ unlink("$file-my_garbage.rc"); }
+        }
+    }
+
+/** 
+ * 
+**/
+    public static function print_result(){
+        _general::$html_output .= 
+        "<!DOCTYPE html>
+<html lang=\"en\">
+    <head>
+        <meta charset=\"UTF-8\">
+        <title>IPP 2021/22 Project - Test Script Results</title>
+        <style>
+            body {background-color: grey; color: black; font-size: 16px; font-family: Helvetica;}
+            h1 {font-size: 30px; float: left; margin-left: 20px;}
+            h2 {font-size: 22px; text-align: center; float: right; position: absolute; right: 3%; top: 0%;}
+            h3 {font-size: 22px; text-align: center; float: right; position: absolute; right: 3%; top: 3%;}
+            h4 {font-size: 22px; text-align: center; float: right; position: absolute; right: 8%; top: 8%; border-radius: 10px; border: 1px solid; border-color: #bdbbb9; padding: 5px; color: #bdbbb9; background-color: #6e6c69;}
+            h5 {text-align: center; font-size: 22px; background-color: grey; color: #bdbbb9; margin-top: 0px; margin-bottom: 0px; padding-bottom: 10px;}
+            .wrapper {width: 1500px; margin: auto;}
+            .column {float: left; text-align: center; margin: 10px;}
+            .row {display:block; text-align: center; margin-bottom: 3px; background-color: #6e6c69;}
+            .first {width: 1000px;}
+            .second .third {width: 200px;}
+            .ok {display:block; width:200px; background-color: green;}
+            .error {display:block; width:200px; background-color: red}
+        </style>
+    </head>
+    <body>
+        <h1>TEST RESULTS of test.php</h1>
+        <h2>Tested files: ";
+        if (_general::$int_only == TRUE){_general::$html_output.=_general::$int_script;}
+        else if (_general::$parse_only == TRUE){_general::$html_output.=_general::$parse_script;}
+        else {_general::$html_output.=_general::$parse_script + ", " + _general::$int_script;}
+        _general::$html_output .=
+        "</h2>
+        <h3>Author: Vojtěch Kališ, xkalis03</h3>
+        <h4>Tests passed: ";
+        $successes = count(array_keys(_general::$RCresults, "true"));
+        $total = count(_general::$RCresults);
+        _general::$html_output .= "$successes/$total";
+        _general::$html_output .=
+        "</h4>
+        <br><br><br><br><br><br><br><br>
+        <div class=\"wrapper\">
+            <div class=\"row\">
+                <div class=\"column first\">
+                    <h5>TESTED FILES</h5>\n";
+        foreach(_general::$source_files as $file){
+            _general::$html_output .= "                        <div class=\"row\">$file</div>\n";
+        }
+        _general::$html_output .=
+        "                </div>
+                <div class=\"column second\">
+                    <h5>";
+        if (_general::$int_only == TRUE){_general::$html_output.="INTERPRET</h5>\n";}
+        else if (_general::$parse_only == TRUE){_general::$html_output.="PARSER</h5>\n";}
+        else {_general::$html_output.="PARSE + INT</h5>\n";}
+
+        if (_general::$int_only == TRUE){
+            foreach(_general::$resultsInt as $result){
+                if ($result == "true"){
+                    _general::$html_output .= "                        <div class=\"row ok\">OK</div>\n";
+                } else {
+                    _general::$html_output .= "                        <div class=\"row error\">FAILED</div>\n";
+                }
+            }
+        }
+        else if (_general::$parse_only == TRUE){
+            foreach(_general::$resultsParse as $result){
+                if ($result == "true"){
+                    _general::$html_output .= "                        <div class=\"row ok\">OK</div>\n";
+                } else {
+                    _general::$html_output .= "                        <div class=\"row error\">FAILED</div>\n";
+                }
+            }
+        }
+        else {
+            foreach(_general::$resultsBoth as $result){
+                if ($result == "true"){
+                    _general::$html_output .= "                        <div class=\"row ok\">OK</div>\n";
+                } else {
+                    _general::$html_output .= "                        <div class=\"row error\">FAILED</div>\n";
+                }
+            }
+        }
+        _general::$html_output .=
+        "                </div>
+                <div class=\"column third\">
+                    <h5>RETURN CODE</h5>\n";
+        foreach(_general::$RCresults as $result){
+            if ($result == "true"){
+                _general::$html_output .= "                        <div class=\"row ok\">OK</div>\n";
+            } else {
+                _general::$html_output .= "                        <div class=\"row error\">FAILED</div>\n";
+            }
+        }
+        _general::$html_output .=
+        "                </div>
+            </div>
+        </div>
+</html>";
     }
 }
 
 
+
 /** MAIN */
+_general::$directory = getcwd(); # needs to be initialized, saves current working directory
+
 _general::load_args($argv, $argc);
-_Auxiliary::writeout_loadargs_result();
 
+_general::load_testssrc();
 
+_general::run_tests();
 
+//_Auxiliary::writeout_loadargs_result();
 
+_general::print_result();
+fputs(STDOUT,_general::$html_output);
+fputs(STDOUT,"\n");
 
-
-
-
-
-
-    // Represents tester as whole class
-    Class Tester
-    {
-        // Settings from command line
-        protected $recursive = false;
-        protected $directory = NULL;
-        protected $parser = NULL;
-        protected $interpret = NULL;
-        protected $parseOnly = false;
-        protected $intOnly = false;
-        protected $files = NULL;
-        protected $argc = 1;
-        protected $parsedArgs = 1;
-
-        // Array of test results
-        protected $resultsParse = [];
-        protected $resultsInt = [];
-        protected $resultsRetval = [];
-
-        // Method searches recursively folders by regex
-        private function rsearch($folder, $pattern)
-        {
-            $dir = new RecursiveDirectoryIterator($folder);
-            $ite = new RecursiveIteratorIterator($dir);
-
-            $files = new RegexIterator($ite, $pattern, RegexIterator::GET_MATCH);
-            
-            $fileList = array();
-            foreach($files as $file) 
-            {
-                $fileList = array_merge($fileList, $file);
-            }
-
-            return $fileList;
-        }
-
-        // Method parses arguments
-        public function parse_args($args)
-        {
-            $this->argc = count($args);
-
-            $help = preg_grep("/^--help$|^-h$/", $args);
-            if(!empty($help) and count($args) != 2)
-            {
-                fwrite(STDERR, "Error, wrong parameters!\n");
-                exit(10);
-            }
-            else if(!empty($help))
-            {
-                print "Testing tool test.php for parse.php and interpret.py\n";
-                print "Legal arguments:\n";
-                print "--help               Shows this message.\n";
-                print "--directory=path     Searches .src tests in <path>, if empty searches cwd().\n";
-                print "--recursive          Searches for tests recursively.\n";
-                print "--parse-script=file  Path to the \"parse.php\", if empty searches cwd().\n";
-                print "--int-script=file    Path to the \"interpret.py\", if empty searches cwd().\n";
-                print "--parse-only         Tests are performed only on \"parse.php\".\n";
-                print "--int-only           Tests are performed only on \"interpret.py\".\n";
-                exit(0);
-            }
-
-            $recursive = preg_grep("/^--recursive$|^-r$/", $args);
-            if(!empty($recursive) and count($recursive) == 1)
-            {
-                $this->recursive = true;
-                $this->parsedArgs++;
-            }
-            else if(!empty($recursive) and count($recursive) != 1)
-            {
-                fwrite(STDERR, "Error, wrong parameters!\n");
-                exit(10);
-            }
-
-            $directory = preg_grep("/^--directory=.+$/", $args);
-            if(!empty($directory) && count($directory) == 1)
-            {
-                $directory = implode($directory);
-                
-                $path = explode("=", $directory, 2);
-                $path = $path[1];
-                
-                $path = realpath($path);
-                $exists = is_dir($path);
-                if($exists == false)
-                {
-                    fwrite(STDERR, "Error, invalid directory!\n");
-                    exit(11);
-                }
-                
-                $this->directory = realpath($path);
-                $this->parsedArgs++;
-
-            }
-            else if(!empty($directory) && count($directory) != 1)
-            {
-                fwrite(STDERR, "Error, wrong parameters!\n");
-                exit(10);
-            }
-            else
-            {
-                $this->directory = getcwd();
-            }
-
-            
-            
-            $parseOnly = preg_grep("/^--parse-only$/", $args);
-            if(!empty($parseOnly) and count($parseOnly) == 1)
-            {
-                $this->parseOnly = true;
-                $this->parsedArgs++;
-            }
-            else if(!empty($parseOnly) and count($parseOnly) != 1)
-            {
-                fwrite(STDERR, "Error, wrong parameters!\n");
-                exit(10);
-            }
-            
-            $intOnly = preg_grep("/^--int-only$/", $args);
-            if(!empty($intOnly) and count($intOnly) == 1)
-            {
-                $this->intOnly = true;
-                $this->parsedArgs++;
-            }
-            else if(!empty($intOnly) and count($intOnly) != 1)
-            {
-                fwrite(STDERR, "Error, wrong parameters!\n");
-                exit(10);
-            }
-            
-            $parser = preg_grep("/^--parse-script=.+$/", $args);
-            if(!empty($parser) and count($parser) == 1)
-            {
-                if($this->intOnly)
-                {
-                    fwrite(STDERR, "Error, wrong arguments!\n");
-                    exit(10);
-                }
-
-                $parser = implode($parser);
-
-                $path = explode("=", $parser, 2);
-                $path = $path[1];
-
-                $this->parser = $path;
-                $this->parsedArgs++;
-            }
-            else if(!empty($parse) and count($parse) != 1)
-            {
-                fwrite(STDERR, "Error, wrong parameters!\n");
-                exit(10);
-            }
-            else
-            {
-                $this->parser = getcwd() . "/parse.php";
-            }
-
-            
-            $interpret = preg_grep("/^--int-script=.+$/", $args);
-            if(!empty($interpret) and count($interpret) == 1)
-            {
-                if($this->parseOnly)
-                {
-                    fwrite(STDERR, "Error, wrong arguments!\n");
-                    exit(10);
-                }
-
-                $interpret = implode($interpret);
-                
-                $path = explode("=", $interpret, 2);
-                $path = $path[1];
-                
-                $this->interpret = $path;
-                $this->parsedArgs++;
-            }
-            else if(!empty($parse) and count($parse) != 1)
-            {
-                fwrite(STDERR, "Error, wrong parameters!\n");
-                exit(10);
-            }
-            else
-            {
-                $this->interpret = getcwd() . "/interpret.py";
-            }
-
-            if(($this->intOnly and $this->parseOnly))
-            {
-                fwrite(STDERR, "Error, wrong parameters!\n");
-                exit(10);
-            }
-            else if($this->argc != $this->parsedArgs)
-            {
-                fwrite(STDERR, "Error, wrong parameters!\n");
-                exit(10);
-            }
-            
-            if(!is_file($this->parser))
-            {
-                fwrite(STDERR, "Error, parser not found!\n");
-                exit(11);
-            }
-
-            if(!is_file($this->interpret))
-            {
-                fwrite(STDERR, "Error, interpret not found!\n");
-                exit(11);
-            }
-        }
-        
-        // Method searches the tests and gets their realpath in list
-        // based on the --recursive flag
-        public function fetch_tests()
-        {
-            if($this->recursive == true)
-            {
-                $this->files = $this->rsearch($this->directory, "/^.*\.src$/");
-            }
-            else
-            {
-                $regex = $this->directory . "/*.src";
-                $this->files = glob($regex);
-            }
-        }
-
-        // Method runs a test based on every .src file in "files" variable
-        public function run_tests()
-        {
-            foreach($this->files as $i)
-            {
-                $i = substr($i, 0, -4);
-                $filename = $i . ".in";
-                $creator = fopen($filename, "a");
-                if($creator == false)
-                {
-                    exit(11);
-                }
-                fclose($creator);
-
-                $filename = $i . ".out";
-                $creator = fopen($filename, "a");
-                if($creator == false)
-                {
-                    exit(11);
-                }
-
-                fclose($creator);
-
-                $filename = $i . ".rc";
-                if(!is_file($filename))
-                {
-                    $creator = fopen($filename, "a");
-                    if($creator == false)
-                    {
-                        exit(12);
-                    }
-                    fwrite($creator, "0");
-                    fclose($creator);
-                }
-                
-                // Parse-only or both
-                if(!$this->intOnly or ($this->intOnly == $this->parseOnly))
-                {
-                    $command = "php8.1 \"" . $this->parser . "\" <\"" . $i . ".src\"" . ">\"" . $i . ".superdupermemexml\"";
-                    exec($command, $output, $retval);
-                    
-                    shell_exec("echo -n \"$retval\" > \"$i.superdupermemeretval\"");
-                    if($this->intOnly == $this->parseOnly && $retval == "0\n")
-                    {
-                        $command = "python3.8 \"" . $this->interpret . "\" \"--input=$i.in\"" . "<\"" . $i . ".superdupermemexml\"" . ">\"" . $i . ".superdupermemeint\"";
-                        exec($command, $output, $retval);
-                        
-                        shell_exec("echo -n \"$retval\" > \"$i.superdupermemeretval\"");
-                    }
-                    else if($this->intOnly == $this->parseOnly)
-                    {
-                        shell_exec("echo -n \"$retval\" > \"$i.superdupermemeint\"");
-                    }
-                }
-                // Int-only
-                else if(!$this->parseOnly)
-                {
-                    $command = "python3.8 \"" . $this->interpret . "\" \"--input=$i.in\"" . "<\"" . $i . ".src\"" . ">\"" . $i . ".superdupermemeint\"";
-                    exec($command, $output, $retval);
-
-                    shell_exec("echo -n \"$retval\" > \"$i.superdupermemeretval\"");
-                }
-            }
-            $this->compare_results();
-        }
-
-        // Method checks out the results of tests, based on temporary files
-        // and pushes true or false, based if test failed
-        private function compare_results()
-        {
-            foreach($this->files as $i)
-            {
-                $testname = substr($i, 0, -4);
-
-                exec("diff -b \"$testname.rc\" \"$testname.superdupermemeretval\"", $output, $diff);
-                if($diff == "0\n")
-                {
-                    array_push($this->resultsRetval, "true");
-                }
-                else
-                {
-                    array_push($this->resultsRetval, "false");
-                }
-
-                if(!$this->parseOnly or ($this->parseOnly == $this->intOnly))
-                {
-                    exec("diff -b \"$testname.out\" \"$testname.superdupermemeint\"", $output, $diff);
-                    if($diff == "0\n")
-                    {
-                        array_push($this->resultsInt, "true");
-                    }
-                    else
-                    {
-                        array_push($this->resultsInt, "false");
-                    }
-                }
-
-                else
-                {
-                    exec("java -jar /pub/courses/ipp/jexamxml/jexamxml.jar \"$testname.out\" \"$testname.superdupermemexml\" /dev/null  /D /pub/courses/ipp/jexamxml/options", $output, $diff);
-                    if($diff == "0\n")
-                    {
-                        array_push($this->resultsParse, "true");
-                    }
-                    else
-                    {
-                        $outFile = file_get_contents("$testname.out");
-                        $customOut = file_get_contents("$testname.superdupermemexml");
-                        if($outFile == $customOut)
-                        {
-                            array_push($this->resultsParse, "true");
-                            continue;
-                        }
-                        array_push($this->resultsParse, "false");
-                    }
-                }
-            }
-        }
-
-        // Method prints out the HTML page based on results on STDOUT
-        public function print_result()
-        {
-            date_default_timezone_set("Europe/Prague");
-            $time = date("Y-m-d - H:m:s");
-            print "<!DOCTYPE html>
-            <html>
-            <head>
-            <title>Test results</title>
-            </head>
-            <body style=\"background-color:rgb(23,24,28);color:white;font-family:arial\">";
-            if($this->intOnly == $this->parseOnly)
-            {
-                print "<h1 style=\"text-align:center;\">Test results for \"parse.php\" and \"interpret.py\"</h1>";
-            }
-            else if($this->intOnly == TRUE)
-            {
-                print "<h1 style=\"text-align:center;\">Test results for \"interpret.py\"</h1>";
-            }
-            else if($this->parseOnly == TRUE)
-            {
-                print "<h1 style=\"text-align:center;\">Test results for \"parse.php\"</h1>";
-            }
-            print "<h2 style=\"text-align:center;\">$time</h2>
-            <br>
-            <table style=\"text-align:center;width:100%;font-size:12px\">\n";
-            print "<tr style=\"font-size:17px\">";
-            print "<th>File</th>";
-
-            if(!$this->parseOnly or ($this->parseOnly == $this->intOnly))
-            {
-                print "<th>Interpret</th>";
-            }
-            else if(!$this->intOnly)
-            {
-                print "<th>Parser</th>";
-            }
-            
-            print "<th>Return code</th> </tr>";
-            
-            $passedTests = 0;
-            for($i = 0; $i < count($this->files); $i++)
-            {
-                print "<tr>";
-                $file = $this->files[$i];
-                print "<th style=\"font-size:10px\">$file</th>";
-                if(!$this->parseOnly or ($this->parseOnly == $this->intOnly))
-                {
-                    if($this->resultsInt[$i] == "N/A")
-                    {
-                        print "<th style=\"color:white\"> - </th>";
-                    }
-                    else if($this->resultsInt[$i] == "true")
-                    {
-                        print "<th style=\"color:green\"> Success </th>";
-                    }
-                    else if($this->resultsInt[$i] == "false")
-                    {
-                        print "<th style=\"color:red\"> Failed </th>";
-                    }
-                }
-                else if(!$this->intOnly)
-                {
-                    if($this->resultsParse[$i] == "N/A")
-                    {
-                        print "<th style=\"color:white\"> - </th>";
-                    }
-                    else if($this->resultsParse[$i] == "true")
-                    {
-                        print "<th style=\"color:green\"> Success </th>";
-                    }
-                    else if($this->resultsParse[$i] == "false")
-                    {
-                        print "<th style=\"color:red\"> Failed </th>";
-                    }
-                }
-
-                if($this->resultsRetval[$i] == "true")
-                {
-                    print "<th style=\"color:green\"> Success </th>";
-                    if(!$this->parseOnly or ($this->parseOnly == $this->intOnly))
-                    {
-                        if($this->resultsInt[$i] == "N/A" or $this->resultsInt[$i] == "true")
-                        {
-                            $passedTests++;
-                        }
-                    }
-                    else
-                    {
-                        if($this->resultsParse[$i] == "N/A" or $this->resultsParse[$i] == "true")
-                        {
-                            $passedTests++;
-                        }
-                    }
-                }
-                else
-                {
-                    print "<th style=\"color:red\"> Failed </th>";
-                }
-
-                print "</tr>";
-
-            }
-
-            print "</table>";
-
-            $testsCount = count($this->files);
-            print "<p style=\"text-align:center;width:100%;font-size:14px\">Passed tests: $passedTests out of $testsCount </p>";
-        }
-
-        // Method prints out little hints, if interpret/parser
-        // was not found
-        public function print_hints()
-        {
-            if(!is_file($this->parser) && !$this->intOnly)
-            {
-                print "<p style=\"font-size:10px;text-align:center;\">Warning! \"parser.php\" not found! All tests for parser will fail.</p>"; 
-            }
-            if(!is_file($this->interpret) && !$this->parseOnly)
-            {
-                print "<p style=\"font-size:10px;text-align:center;\">Warning! \"interpret.py\" not found! All tests for interpret will fail.</p>"; 
-            }
-            print "</body>
-            </html>";
-        }
-
-        // Method cleans up all temporary files
-        public function clean_up()
-        {
-            foreach($this->files as $i)
-            {
-                $filename = substr($i, 0, -4);
-
-                if(is_file("$filename.superdupermemeint"))
-                {
-                    exec("rm \"$filename.superdupermemeint\"");
-                }
-
-                if(is_file("$filename.superdupermemexml"))
-                {
-                    exec("rm \"$filename.superdupermemexml\"");
-                }
-
-		        if(is_file("$filename.out.log"))
-		        {
-		            exec("rm \"$filename.out.log\"");
-		        }
-                 
-                exec("rm \"$filename.superdupermemeretval\"");
-            }
-        }
-    }
-
-    /**$tester = new Tester();
-
-    $tester->parse_args($argv);
-
-    $tester->fetch_tests();
-
-    $tester->run_tests();
-
-    $tester->print_result();
-
-    $tester->print_hints();
-
-    $tester->clean_up();**/
+//$htmlout = fopen("output.html", "w");
+//fwrite($htmlout, _general::$html_output);
+//fclose($htmlout);
 ?>
