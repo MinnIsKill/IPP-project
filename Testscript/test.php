@@ -65,6 +65,8 @@ class _Auxiliary {
 
         echo "\nRC Results: ";
         var_dump(_general::$RCresults);
+        echo "\nRC Results nums: ";
+        var_dump(_general::$RCresults_nums);
         echo "resultsParse: ";
         var_dump(_general::$resultsParse);
         echo "resultsInt: ";
@@ -104,6 +106,8 @@ class _general {
     public static $resultsInt = [];
     public static $resultsBoth = [];
     public static $RCresults = [];
+    public static $RCresults_nums = [];
+    public static $RCresults_orig_nums = [];
 
     public static $help_msg = // a static string printed out when '--help' is called
 "Script of type filter (parse.php in PHP 8.1) loads a source file written in IPPcode22 from stdin, checks the lexical
@@ -304,6 +308,16 @@ and syntactical correctness of written code and prints out its XML reprezentatio
         if (_general::$int_only == FALSE){
             foreach(_general::$source_files as $file){
                 $file = substr($file, 0, -4); #cut away the last four characters (".src")
+
+                //if these files are missing, generate empty ones
+                if (!is_file("$file.in")){
+                    $newfile = fopen("$file.in", "w");
+                    fclose($newfile);
+                }
+                if (!is_file("$file.out")){
+                    $newfile = fopen("$file.out", "w");
+                    fclose($newfile);
+                }
                 
                 $parser = _general::$parse_script;
                 $rc = 0;
@@ -314,12 +328,23 @@ and syntactical correctness of written code and prints out its XML reprezentatio
                 fwrite($newfile, $rc);
                 fclose($newfile);
 
-                $rc_orig = file_get_contents("$file.rc");
+                if (is_file("$file.rc")){
+                    $rc_orig = file_get_contents("$file.rc");
+                } else {
+                    $newfile = fopen("$file.rc", "w");
+                    fwrite($newfile, "0");
+                    fclose($newfile);
+                    $rc_orig = file_get_contents("$file.rc");
+                }
 
                 if (_general::$parse_only == TRUE){ // if parse-only, there's an XML to compare with
                     if ($rc_orig == $rc){
+                        array_push(_general::$RCresults_nums, $rc);
+                        array_push(_general::$RCresults_orig_nums, $rc_orig);
                         array_push(_general::$RCresults, "true");
                     } else {
+                        array_push(_general::$RCresults_nums, $rc);
+                        array_push(_general::$RCresults_orig_nums, $rc_orig);
                         array_push(_general::$RCresults, "false");
                     }
 
@@ -344,34 +369,39 @@ and syntactical correctness of written code and prints out its XML reprezentatio
                     $detected_error = false;
                     $interpreter = _general::$int_script;
 
-                    if(is_file("$file.in")){
-                        exec("python3.8 $interpreter --source=$file-my_garbage.out --input=$file.in;", $output_dump, $rc);
-                        if ($rc == 0){
-                            $output_dump = shell_exec("python3.8 $interpreter --source=$file-my_garbage.out --input=$file.in;");
-                        } else {
-                            $detected_error = true;
-                        }
+                    exec("python3.8 $interpreter --source=$file-my_garbage.out --input=$file.in;", $output_dump, $rc);
+                    if ($rc == 0){
+                        $output_dump = shell_exec("python3.8 $interpreter --source=$file-my_garbage.out --input=$file.in;");
                     } else {
-                        exec("python3.8 $interpreter --source=$file-my_garbage.out;", $output_dump, $rc);
-                        $output_dump = shell_exec("python3.8 $interpreter --source=$file-my_garbage.out;");
+                        $detected_error = true;
                     }
 
                     if(is_file("$file-my_garbage.rc")){ 
                         unlink("$file-my_garbage.rc"); 
                     }
+
+                    $newfile = fopen("$file-my_garbage.out", "w");
+                    file_put_contents("$file-my_garbage.out", $output_dump);
+                    fclose($newfile);
+
                     $newfile = fopen("$file-my_garbage.rc", "w");
                     fwrite($newfile, $rc);
                     fclose($newfile);
 
                     if ($rc_orig == $rc){
+                        array_push(_general::$RCresults_nums, $rc);
+                        array_push(_general::$RCresults_orig_nums, $rc_orig);
                         array_push(_general::$RCresults, "true");
                     } else {
+                        array_push(_general::$RCresults_nums, $rc);
+                        array_push(_general::$RCresults_orig_nums, $rc_orig);
                         array_push(_general::$RCresults, "false");
                     }
 
                     $outFile = file_get_contents("$file.out");
+                    $myoutFile = file_get_contents("$file-my_garbage.out");
 
-                    if(($outFile == $output_dump) || ($detected_error == true)){
+                    if(($outFile == $myoutFile) || ($detected_error == true)){
                         array_push(_general::$resultsBoth, "true");
                     } else {
                         array_push(_general::$resultsBoth, "false");
@@ -385,6 +415,16 @@ and syntactical correctness of written code and prints out its XML reprezentatio
         else if (_general::$parse_only == FALSE){
             foreach(_general::$source_files as $file){
                 $file = substr($file, 0, -4); #cut away the last four characters (".src")
+
+                //if these files are missing, generate empty ones
+                if (!is_file("$file.in")){
+                    $newfile = fopen("$file.in", "w");
+                    fclose($newfile);
+                }
+                if (!is_file("$file.out")){
+                    $newfile = fopen("$file.out", "w");
+                    fclose($newfile);
+                }
                     
                 $parser = _general::$parse_script;
                 $rc = 0;
@@ -393,33 +433,44 @@ and syntactical correctness of written code and prints out its XML reprezentatio
                 $detected_error = false;
                 $interpreter = _general::$int_script;
 
-                $rc_orig = file_get_contents("$file.rc");
-
-                if(is_file("$file.in")){
-                    exec("python3.8 $interpreter --source=$file.src --input=$file.in;", $output_dump, $rc);
-                    if ($rc == 0){
-                        $output_dump = shell_exec("python3.8 $interpreter --source=$file.src --input=$file.in;");
-                    } else {
-                        $detected_error = true;
-                    }
+                if (is_file("$file.rc")){
+                    $rc_orig = file_get_contents("$file.rc");
                 } else {
-                    exec("python3.8 $interpreter --source=$file.src;", $output_dump, $rc);
-                    $output_dump = shell_exec("python3.8 $interpreter --source=$file.src;");
+                    $newfile = fopen("$file.rc", "w");
+                    fwrite($newfile, "0");
+                    fclose($newfile);
+                    $rc_orig = file_get_contents("$file.rc");
+                }
+
+                exec("python3.8 $interpreter --source=$file.src --input=$file.in;", $output_dump, $rc);
+                if ($rc == 0){
+                    $output_dump = shell_exec("python3.8 $interpreter --source=$file.src --input=$file.in;");
+                } else {
+                    $detected_error = true;
                 }
 
                 $newfile = fopen("$file-my_garbage.rc", "w");
                 fwrite($newfile, $rc);
                 fclose($newfile);
 
+                $newfile = fopen("$file-my_garbage.out", "w");
+                file_put_contents("$file-my_garbage.out", $output_dump);
+                fclose($newfile);
+
                 if ($rc_orig == $rc){
+                    array_push(_general::$RCresults_nums, $rc);
+                    array_push(_general::$RCresults_orig_nums, $rc_orig);
                     array_push(_general::$RCresults, "true");
                 } else {
+                    array_push(_general::$RCresults_nums, $rc);
+                    array_push(_general::$RCresults_orig_nums, $rc_orig);
                     array_push(_general::$RCresults, "false");
                 }
 
                 $outFile = file_get_contents("$file.out");
+                $myoutFile = file_get_contents("$file-my_garbage.out");
 
-                if(($outFile == $output_dump) || ($detected_error == true)){
+                if(($outFile == $myoutFile) || ($detected_error == true)){
                     array_push(_general::$resultsInt, "true");
                 } else {
                     array_push(_general::$resultsInt, "false");
@@ -474,7 +525,7 @@ and syntactical correctness of written code and prints out its XML reprezentatio
         <h2>Tested files: ";
         if (_general::$int_only == TRUE){_general::$html_output.=_general::$int_script;}
         else if (_general::$parse_only == TRUE){_general::$html_output.=_general::$parse_script;}
-        else {_general::$html_output.=_general::$parse_script + ", " + _general::$int_script;}
+        else {_general::$html_output.=_general::$parse_script . ", " . _general::$int_script;}
         _general::$html_output .=
         "</h2>
         <h3>Author: Vojtěch Kališ, xkalis03</h3>
@@ -531,12 +582,18 @@ and syntactical correctness of written code and prints out its XML reprezentatio
         "                </div>
                 <div class=\"column third\">
                     <h5>RETURN CODE</h5>\n";
+        $i = 0;
         foreach(_general::$RCresults as $result){
             if ($result == "true"){
-                _general::$html_output .= "                        <div class=\"row ok\">OK</div>\n";
+                $rc = _general::$RCresults_nums[$i];
+                $rc_orig =_general::$RCresults_orig_nums[$i];
+                _general::$html_output .= "                        <div class=\"row ok\">$rc [wanted: $rc_orig]</div>\n";
             } else {
-                _general::$html_output .= "                        <div class=\"row error\">FAILED</div>\n";
+                $rc = _general::$RCresults_nums[$i];
+                $rc_orig =_general::$RCresults_orig_nums[$i];
+                _general::$html_output .= "                        <div class=\"row error\">$rc [wanted: $rc_orig]</div>\n";
             }
+            $i = $i+1;
         }
         _general::$html_output .=
         "                </div>
@@ -563,7 +620,7 @@ _general::print_result();
 fputs(STDOUT,_general::$html_output);
 fputs(STDOUT,"\n");
 
-//$htmlout = fopen("output.html", "w");
-//fwrite($htmlout, _general::$html_output);
-//fclose($htmlout);
+$htmlout = fopen("output.html", "w");
+fwrite($htmlout, _general::$html_output);
+fclose($htmlout);
 ?>

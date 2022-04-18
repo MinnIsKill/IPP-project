@@ -12,6 +12,7 @@
 import xml.etree.ElementTree as ET # XML parsing module
 import sys
 import time
+import re
 
 from sqlalchemy import true # for command line arguments reading
 from os.path import exists as file_exists
@@ -47,7 +48,7 @@ global_frame = {}
 #   stack) until the TF at the top is popped (POPFRAME) back out.
 # - multiple temporary frames can be pushed to the top of LF
 # - local frame is undefined at program start
-local_frame = {}  # not active
+local_frame = {"status": 0}  # not active
 # - temporary frame becomes active when CREATEFRAME is called
 temporary_frame = {"status": 0}  # not active
 
@@ -109,9 +110,26 @@ class AuxFuncs:
         for child in children:
             instruct_cnt += 1
 
+        found_instruct_cnt = 0   
+
         # put all found order numbers in a list
         for node in mytree.findall('.//instruction'):
-            ordernums_list.append(int(node.attrib['order'])) #!!! maybe  int(node.attrib['order'])  ??
+            if 'order' not in node.attrib:
+                STDERR("ERROR[32]: an instruction without 'order' tag found\n")
+                AuxFuncs.error_cleanup(32)
+            if 'opcode' not in node.attrib:
+                STDERR("ERROR[32]: an instruction without 'opcode' tag found\n")
+                AuxFuncs.error_cleanup(32)
+            if ((node.attrib['order']).isdigit() != 1):
+                STDERR("ERROR[32]: an instruction without a number in 'order' tag found\n")
+                AuxFuncs.error_cleanup(32)
+            else:
+                ordernums_list.append(int(node.attrib['order']))
+            found_instruct_cnt = found_instruct_cnt+1
+
+        if instruct_cnt != found_instruct_cnt:
+            STDERR("ERROR[32]: found an unknown element in place of an instruction\n")
+            AuxFuncs.error_cleanup(32)
 
         # check if duplicate or negative order numbers received (error)
         AuxFuncs.list_dupl_or_neg_check(ordernums_list)
@@ -131,6 +149,56 @@ class AuxFuncs:
         l1.clear()
 
 ############################################################
+## used by opcodes to get positions or arguments (handles cases when arguments aren't in the right order)
+## also checks if number of arguments for given opcode is right
+    @staticmethod
+    def arg_enumerate(instr, opcode, num, numofargs):
+        spot = 1
+        
+        AuxFuncs.argcnt_check(instr, opcode, num, numofargs, False)
+
+        if (instr[0].tag == "arg{}".format(num)):
+            spot = 1
+        elif numofargs > 1:
+            if (instr[1].tag == "arg{}".format(num)):
+                spot = 2
+            elif numofargs == 3: #max 3 arguments
+                if (instr[2].tag == "arg{}".format(num)):
+                    spot = 3
+                else:
+                    STDERR(f"ERROR[32]: arguments received by {opcode} in wrong format\n")
+                    AuxFuncs.error_cleanup(32)
+            else:
+                STDERR(f"ERROR[32]: arguments received by {opcode} in wrong format\n")
+                AuxFuncs.error_cleanup(32)
+        else:
+            STDERR(f"ERROR[32]: arguments received by {opcode} in wrong format\n")
+            AuxFuncs.error_cleanup(32)
+
+        return spot
+
+############################################################
+## checks if number of arguments for given opcode is right
+## and if arguments are in the right format
+    def argcnt_check(instr, opcode, num, numofargs, singlearg):
+        arguments = list(instr)
+        # check if no arguments received (meaning arg1 is missing)
+        if (len(arguments) == 0):
+            STDERR(f"ERROR[32]: no arguments received by {opcode}\n")
+            AuxFuncs.error_cleanup(32)
+        elif (len(arguments) != numofargs):
+            STDERR(f"ERROR[32]: {opcode} received either too little or too many arguments\n")
+            AuxFuncs.error_cleanup(32)
+        # check argument tag
+        if (instr[num-1].tag[3].isdigit() == 0):
+            STDERR(f"ERROR[32]: arguments received by {opcode} in wrong format\n")
+            AuxFuncs.error_cleanup(32)
+        if (singlearg == True):
+            if (instr[0].tag != "arg1"):
+                STDERR(f"ERROR[32]: arguments received by {opcode} in wrong format\n")
+                AuxFuncs.error_cleanup(32)
+
+############################################################
 ## checks basic argument correctness (for further info check the comments inside the function)
 #<var>: var
 #<label>: label
@@ -140,10 +208,6 @@ class AuxFuncs:
     def check_arg(instr, opcode, num, type):
         num = num - 1
         symb_is_var = 0
-        # check argument tag
-        if (instr[num].tag != "arg{}".format(num+1)):
-            STDERR(f"ERROR[32]: arguments received by {opcode} in wrong order or format\n")
-            AuxFuncs.error_cleanup(32)
         # check type of argument
         if (instr[num].attrib['type'] != type): #string 'type' by argument doesn't correspond with searched string (typical for <symb>)
             if (type == "symb"):
@@ -166,13 +230,16 @@ class AuxFuncs:
                     STDERR(f"ERROR[54]: {opcode} received an access request to a nonexistent variable (in global frame)\n")
                     AuxFuncs.error_cleanup(54)
             elif (instr[num].text[0:3] == "LF@"):
-                if (instr[num].text[3:len(instr[num].text)] not in local_frame):
-                    STDERR(f"ERROR[54]: {opcode} received an access request to a nonexistent variable (in local frame)\n")
-                    AuxFuncs.error_cleanup(54)
                 if (local_frame["status"] == 0):
                     STDERR(f"ERROR[55]: {opcode} received a variable with reference to an uninitialized (or empty) frame stack\n")
                     AuxFuncs.error_cleanup(55)
+                if (instr[num].text[3:len(instr[num].text)] not in local_frame):
+                    STDERR(f"ERROR[54]: {opcode} received an access request to a nonexistent variable (in local frame)\n")
+                    AuxFuncs.error_cleanup(54)
             elif (instr[num].text[0:3] == "TF@"):
+                if (temporary_frame["status"] == 0):  # not active
+                    STDERR("ERROR[55]: found an attempt at pushing a non-existent Temporary frame\n")
+                    AuxFuncs.error_cleanup(55)
                 if (instr[num].text[3:len(instr[num].text)] not in temporary_frame):
                     STDERR(f"ERROR[54]: {opcode} received an access request to a nonexistent variable (in temporary frame)\n")
                     AuxFuncs.error_cleanup(54)
@@ -208,11 +275,14 @@ class AuxFuncs:
             if ((instr[num].text).lstrip("-").isdigit() == 1):
                 return instr[num].text
             else:
-                STDERR("ERROR[32]: bad operand value found: attribute of type 'int' does not contain an integer\n")
-                AuxFuncs.error_cleanup(32)
+                STDERR("ERROR[53]: bad operand value found: attribute of type 'int' does not contain an integer\n")
+                AuxFuncs.error_cleanup(53)
         elif (instr[num].attrib['type'] == "var"):
             if (globals()[frame][instr[num].text[3:len(instr[num].text)]][0:2] == "i."):
                 return globals()[frame][instr[num].text[3:len(instr[num].text)]][2:len(globals()[frame][instr[num].text[3:len(instr[num].text)]])]
+            elif (globals()[frame][instr[num].text[3:len(instr[num].text)]] == ""):
+                STDERR(f"ERROR[56]: {opcode} received an argument which is unset (missing a value)\n")
+                AuxFuncs.error_cleanup(56)
         else:
             STDERR(f"ERROR[53]: {opcode} received an operant of unexpected type (expected 'int')\n")
             AuxFuncs.error_cleanup(53)
@@ -232,33 +302,39 @@ class AuxFuncs:
 ## returns the prefix for the type of the passed argument
     @staticmethod
     def get_prefix(instr, num):
-        frame = AuxFuncs.get_frame(instr, num)
         num = num - 1
         if (instr[num].attrib['type'] == "int"):
             if ((instr[num].text).lstrip("-").isdigit() == 1):
                 return "i."
             else:
-                STDERR("ERROR[32]: found an ambiguous argument of type 'int' which doesn't contain an integer\n")
-                AuxFuncs.error_cleanup(32)
+                STDERR("ERROR[53]: found an ambiguous argument of type 'int' which doesn't contain an integer\n")
+                AuxFuncs.error_cleanup(53)
         elif (instr[num].attrib['type'] == "bool"):
             if (((instr[num].text) == "true") or ((instr[num].text) == "false")):
                 return "b."
             else:
-                STDERR("ERROR[32]: found an ambiguous argument of type 'bool' which doesn't contain a boolean type\n")
-                AuxFuncs.error_cleanup(32)
+                STDERR("ERROR[53]: found an ambiguous argument of type 'bool' which doesn't contain a boolean type\n")
+                AuxFuncs.error_cleanup(53)
         elif (instr[num].attrib['type'] == "nil"):
             if ((instr[num].text) == "nil"):
                 return "n."
             else:
-                STDERR("ERROR[32]: found an ambiguous argument of type 'nil' which doesn't contain \"nil\"\n")
-                AuxFuncs.error_cleanup(32)
+                STDERR("ERROR[53]: found an ambiguous argument of type 'nil' which doesn't contain \"nil\"\n")
+                AuxFuncs.error_cleanup(53)
         elif (instr[num].attrib['type'] == "string"):
             return "s."
         elif (instr[num].attrib['type'] == "var"):
-            if (globals()[frame][instr[num].text[3:len(instr[num].text)]] == ""): # if var is unitialized
-                return "unit_var"
+            frame = AuxFuncs.get_frame(instr, num+1)
+            if (globals()[frame][instr[num].text[3:len(instr[num].text)]] == ""): # if var is uninitialized
+                return "unset_var"
+            elif (globals()[frame][instr[num].text[3:len(instr[num].text)]] == "NULL"): # if var isn't initialized but was handled already (for TYPE)
+                return "NULL"
+            elif (globals()[frame][instr[num].text[3:len(instr[num].text)]][1] != "."): #type
+                return "type"
             else:
                 return (globals()[frame][instr[num].text[3:len(instr[num].text)]][0:2])
+        elif (instr[num].attrib['type'] == "type"):
+            return "type"
 
 ############################################################
 ## returns the value of the passed argument
@@ -267,24 +343,27 @@ class AuxFuncs:
         frame = AuxFuncs.get_frame(instr, num)
         num = num - 1
 
+        if (instr[num].text == None):
+            return ""
+
         if (instr[num].attrib['type'] == "int"):
             if ((instr[num].text).lstrip("-").isdigit() == 1):
                 return instr[num].text
             else:
-                STDERR("ERROR[32]: found an ambiguous argument of type 'int' which doesn't contain an integer\n")
-                AuxFuncs.error_cleanup(32)
+                STDERR("ERROR[53]: found an ambiguous argument of type 'int' which doesn't contain an integer\n")
+                AuxFuncs.error_cleanup(53)
         elif (instr[num].attrib['type'] == "bool"):
             if (((instr[num].text) == "true") or ((instr[num].text) == "false")):
                 return instr[num].text
             else:
-                STDERR("ERROR[32]: found an ambiguous argument of type 'bool' which doesn't contain a boolean type\n")
-                AuxFuncs.error_cleanup(32)
+                STDERR("ERROR[53]: found an ambiguous argument of type 'bool' which doesn't contain a boolean type\n")
+                AuxFuncs.error_cleanup(53)
         elif (instr[num].attrib['type'] == "nil"):
             if ((instr[num].text) == "nil"):
                 return instr[num].text
             else:
-                STDERR("ERROR[32]: found an ambiguous argument of type 'nil' which doesn't contain \"nil\"\n")
-                AuxFuncs.error_cleanup(32)
+                STDERR("ERROR[53]: found an ambiguous argument of type 'nil' which doesn't contain \"nil\"\n")
+                AuxFuncs.error_cleanup(53)
         elif ((instr[num].attrib['type'] == "string") or (instr[num].attrib['type'] == "label")):
             return instr[num].text
         elif (instr[num].attrib['type'] == "var"):
@@ -295,12 +374,13 @@ class AuxFuncs:
     @staticmethod
     def get_frame(instr, num):
         num = num - 1
-        if (instr[num].text[0:3] == "GF@"):
-            return "global_frame"
-        elif (instr[num].text[0:3] == "LF@"):
-            return "local_frame"
-        elif (instr[num].text[0:3] == "TF@"):
-            return "temporary_frame"
+        if (instr[num].text != None):
+            if (instr[num].text[0:3] == "GF@"):
+                return "global_frame"
+            elif (instr[num].text[0:3] == "LF@"):
+                return "local_frame"
+            elif (instr[num].text[0:3] == "TF@"):
+                return "temporary_frame"
 ############################################################
 #                    OPCODES' FUNCTIONS                    #
 ############################################################
@@ -318,14 +398,23 @@ class OpcodeFuncs:
 ############################################################
     @staticmethod
     def MOVE(instr):
-        AuxFuncs.check_arg(instr, "MOVE", 1, "var")
-        AuxFuncs.check_arg(instr, "MOVE", 2, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "MOVE", 1, 2)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "MOVE", 2, 2)
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        AuxFuncs.check_arg(instr, "MOVE", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "MOVE", secondarg_pos, "symb")
 
-        pre = AuxFuncs.get_prefix(instr, 2)
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
 
-        globals()[frame][instr[0].text[3:len(instr[0].text)]] = pre + str(instr[1].text)
+        pre = AuxFuncs.get_prefix(instr, secondarg_pos)
+
+        if (pre == "unset_var"):
+            STDERR(f"ERROR[56]: MOVE received an argument which is unset (missing a value)\n")
+            AuxFuncs.error_cleanup(56)
+
+        val = AuxFuncs.get_val(instr, secondarg_pos)
+
+        globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = pre + str(val)
 ############################################################
     @staticmethod
     def CREATEFRAME(instr):
@@ -337,7 +426,11 @@ class OpcodeFuncs:
         global pushed_TF_cnt
         global Frames_stack
         global local_frame
-        
+
+        if (temporary_frame["status"] == 0):  # not active
+            STDERR("ERROR[55]: found an attempt at pushing a non-existent Temporary frame\n")
+            AuxFuncs.error_cleanup(55)
+
         pushed_TF_cnt += 1
         Frames_stack.append(temporary_frame.copy())
         local_frame = Frames_stack[pushed_TF_cnt]
@@ -352,6 +445,10 @@ class OpcodeFuncs:
         global temporary_frame
         global local_frame
 
+        if pushed_TF_cnt == 0:
+            STDERR("ERROR[55]: found an attempt at popping an empty Frames stack\n")
+            AuxFuncs.error_cleanup(55)
+
         temporary_frame = Frames_stack[-1].copy() #copy top of stack to TF
         del Frames_stack[-1] #remove the copied frame at top of stack
         pushed_TF_cnt -= 1
@@ -362,6 +459,8 @@ class OpcodeFuncs:
 ############################################################
     @staticmethod
     def DEFVAR(instr):
+        AuxFuncs.argcnt_check(instr, "DEFVAR", 1, 1, True)
+
         AuxFuncs.check_arg(instr, "DEFVAR", 1, "var")
 
         if (instr[0].text[0:3] == "GF@"):
@@ -371,15 +470,18 @@ class OpcodeFuncs:
                 STDERR("ERROR[52]: found an attempt at variable redefinition in global frame\n")
                 AuxFuncs.error_cleanup(52)
         elif (instr[0].text[0:3] == "LF@"): #!!!  AND local frame was initiated
+            if (local_frame["status"] == 0):
+                STDERR(f"ERROR[55]: {opcode} received a variable with reference to an uninitialized (or empty) frame stack\n")
+                AuxFuncs.error_cleanup(55)
             if ((instr[0].text[3:len(instr[0].text)]) not in local_frame):
                 local_frame[instr[0].text[3:len(instr[0].text)]] = ""
             else:
                 STDERR("ERROR[52]: found an attempt at variable redefinition in local frame\n")
                 AuxFuncs.error_cleanup(52)
-            if (local_frame["status"] == 0):
-                    STDERR(f"ERROR[55]: {instr.attrib['opcode']} received a variable with reference to an uninitialized (or empty) frame stack\n")
-                    AuxFuncs.error_cleanup(55)
         elif (instr[0].text[0:3] == "TF@"):
+            if (temporary_frame["status"] == 0):
+                STDERR(f"ERROR[55]: {instr.attrib['opcode']} received a variable with reference to an uninitialized (or empty) frame stack\n")
+                AuxFuncs.error_cleanup(55)
             if ((instr[0].text[3:len(instr[0].text)]) not in temporary_frame):
                 temporary_frame[instr[0].text[3:len(instr[0].text)]] = ""
             else:
@@ -395,6 +497,9 @@ class OpcodeFuncs:
         global instruct_position
         global Labels_stack
         global Call_stack
+        global Call_stack_instrpos
+
+        AuxFuncs.argcnt_check(instr, "CALL", 1, 1, True)
 
         AuxFuncs.check_arg(instr, "CALL", 1, "label")
 
@@ -413,6 +518,11 @@ class OpcodeFuncs:
         global instruct_position
         global Labels_stack
         global Call_stack
+        global Call_stack_instrpos
+
+        if (len(Call_stack_instrpos) == 0):
+            STDERR(f"ERROR[56]: RETURN encountered an attempt at popping from an empty Call stack\n")
+            AuxFuncs.error_cleanup(56)
 
         instruct_position = Call_stack_instrpos.pop() # remove and return last saved order number
 
@@ -425,15 +535,23 @@ class OpcodeFuncs:
 ############################################################
     @staticmethod
     def PUSHS(instr):
+        AuxFuncs.argcnt_check(instr, "PUSHS", 1, 1, True)
+
         AuxFuncs.check_arg(instr, "PUSHS", 1, "symb")
 
-        pre = AuxFuncs.get_prefix(instr, 2)
+        pre = AuxFuncs.get_prefix(instr, 1)
+
+        if (pre == "unset_var"):
+            STDERR(f"ERROR[56]: PUSHS received an argument which is unset (missing a value)\n")
+            AuxFuncs.error_cleanup(56)
 
         Data_stack.append(pre + str(instr[0].text))
 ############################################################
     @staticmethod
     def POPS(instr):
         global Data_stack
+
+        AuxFuncs.argcnt_check(instr, "POPS", 1, 1, True)
 
         AuxFuncs.check_arg(instr, "POPS", 1, "var")
 
@@ -460,89 +578,113 @@ class OpcodeFuncs:
 ############################################################
     @staticmethod
     def ADD(instr):
-        AuxFuncs.check_arg(instr, "ADD", 1, "var")
-        AuxFuncs.check_arg(instr, "ADD", 2, "symb")
-        AuxFuncs.check_arg(instr, "ADD", 3, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "ADD", 1, 3)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "ADD", 2, 3)
+        thirdarg_pos = AuxFuncs.arg_enumerate(instr, "ADD", 3, 3)
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        AuxFuncs.check_arg(instr, "ADD", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "ADD", secondarg_pos, "symb")
+        AuxFuncs.check_arg(instr, "ADD", thirdarg_pos, "symb")
+
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
         
-        symb1 = AuxFuncs.symb_int_check_and_ret(instr, "ADD", 2)
-        symb2 = AuxFuncs.symb_int_check_and_ret(instr, "ADD", 3)
+        symb1 = AuxFuncs.symb_int_check_and_ret(instr, "ADD", secondarg_pos)
+        symb2 = AuxFuncs.symb_int_check_and_ret(instr, "ADD", thirdarg_pos)
 
-        globals()[frame][instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) + int(symb2)))
+        globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "i." + (str(int(symb1) + int(symb2)))
 ############################################################
     @staticmethod
     def SUB(instr):
-        AuxFuncs.check_arg(instr, "SUB", 1, "var")
-        AuxFuncs.check_arg(instr, "SUB", 2, "symb")
-        AuxFuncs.check_arg(instr, "SUB", 3, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "SUB", 1, 3)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "SUB", 2, 3)
+        thirdarg_pos = AuxFuncs.arg_enumerate(instr, "SUB", 3, 3)
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        AuxFuncs.check_arg(instr, "SUB", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "SUB", secondarg_pos, "symb")
+        AuxFuncs.check_arg(instr, "SUB", thirdarg_pos, "symb")
+
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
         
-        symb1 = AuxFuncs.symb_int_check_and_ret(instr, "SUB", 2)
-        symb2 = AuxFuncs.symb_int_check_and_ret(instr, "SUB", 3)
+        symb1 = AuxFuncs.symb_int_check_and_ret(instr, "SUB", secondarg_pos)
+        symb2 = AuxFuncs.symb_int_check_and_ret(instr, "SUB", thirdarg_pos)
 
-        globals()[frame][instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) - int(symb2)))
+        globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "i." + (str(int(symb1) - int(symb2)))
 ############################################################
     @staticmethod
     def MUL(instr):
-        AuxFuncs.check_arg(instr, "MUL", 1, "var")
-        AuxFuncs.check_arg(instr, "MUL", 2, "symb")
-        AuxFuncs.check_arg(instr, "MUL", 3, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "MUL", 1, 3)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "MUL", 2, 3)
+        thirdarg_pos = AuxFuncs.arg_enumerate(instr, "MUL", 3, 3)
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        AuxFuncs.check_arg(instr, "MUL", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "MUL", secondarg_pos, "symb")
+        AuxFuncs.check_arg(instr, "MUL", thirdarg_pos, "symb")
+
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
         
-        symb1 = AuxFuncs.symb_int_check_and_ret(instr, "MUL", 2)
-        symb2 = AuxFuncs.symb_int_check_and_ret(instr, "MUL", 3)
+        symb1 = AuxFuncs.symb_int_check_and_ret(instr, "MUL", secondarg_pos)
+        symb2 = AuxFuncs.symb_int_check_and_ret(instr, "MUL", thirdarg_pos)
 
-        globals()[frame][instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) * int(symb2)))
+        globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "i." + (str(int(symb1) * int(symb2)))
 ############################################################
     @staticmethod
     def IDIV(instr):
-        AuxFuncs.check_arg(instr, "IDIV", 1, "var")
-        AuxFuncs.check_arg(instr, "IDIV", 2, "symb")
-        AuxFuncs.check_arg(instr, "IDIV", 3, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "IDIV", 1, 3)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "IDIV", 2, 3)
+        thirdarg_pos = AuxFuncs.arg_enumerate(instr, "IDIV", 3, 3)
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        AuxFuncs.check_arg(instr, "IDIV", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "IDIV", secondarg_pos, "symb")
+        AuxFuncs.check_arg(instr, "IDIV", thirdarg_pos, "symb")
+
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
         
-        symb1 = AuxFuncs.symb_int_check_and_ret(instr, "IDIV", 2)
-        symb2 = AuxFuncs.symb_int_check_and_ret(instr, "IDIV", 3)
+        symb1 = AuxFuncs.symb_int_check_and_ret(instr, "IDIV", secondarg_pos)
+        symb2 = AuxFuncs.symb_int_check_and_ret(instr, "IDIV", thirdarg_pos)
 
         if (int(symb2) == 0):
             STDERR("ERROR[57]: IDIV received '0' as a second attribute (attempt in division by zero)\n")
             AuxFuncs.error_cleanup(57)
 
-        globals()[frame][instr[0].text[3:len(instr[0].text)]] = "i." + (str(int(symb1) // int(symb2)))
+        globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "i." + (str(int(symb1) // int(symb2)))
 ############################################################
     @staticmethod
     def LT(instr):
-        AuxFuncs.check_arg(instr, "LT", 1, "var")
-        AuxFuncs.check_arg(instr, "LT", 2, "symb")
-        AuxFuncs.check_arg(instr, "LT", 3, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "LT", 1, 3)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "LT", 2, 3)
+        thirdarg_pos = AuxFuncs.arg_enumerate(instr, "LT", 3, 3)
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        AuxFuncs.check_arg(instr, "LT", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "LT", secondarg_pos, "symb")
+        AuxFuncs.check_arg(instr, "LT", thirdarg_pos, "symb")
 
-        type1 = AuxFuncs.get_prefix(instr, 2)
-        type2 = AuxFuncs.get_prefix(instr, 3)
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
 
-        val1 = AuxFuncs.get_val(instr, 2)
-        val2 = AuxFuncs.get_val(instr, 3)
+        type1 = AuxFuncs.get_prefix(instr, secondarg_pos)
+        type2 = AuxFuncs.get_prefix(instr, thirdarg_pos)
+
+        if ((type1 == "unset_var") or (type2 == "unset_var")):
+            STDERR(f"ERROR[56]: LT received an argument which is unset (missing a value)\n")
+            AuxFuncs.error_cleanup(56)
+
+        val1 = AuxFuncs.get_val(instr, secondarg_pos)
+        val2 = AuxFuncs.get_val(instr, thirdarg_pos)
 
         if ((type1 == "i.") and (type2 == "i.")):
             if (int(val1) < int(val2)):
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.true"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
             else:
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.false"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.false"
         elif ((type1 == "b.") and (type2 == "b.")):
             if ((val1 == "true") or ((val1 == "false") and (val2 == "false"))):
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.false"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.false"
             else: #the only time val1 can be less than val2 is if val1=false and val2=true 
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.true"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
         elif ((type1 == "s.") and (type2 == "s.")):
             if (val1 < val2): #python handles string comparisons lexicographically already
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.true"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
             else:
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.false"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.false"
         elif ((type1 == "n.") or (type2 == "n.")):
             STDERR("ERROR[53]: LT received 'nil' as an attribute\n")
             AuxFuncs.error_cleanup(53)
@@ -552,33 +694,41 @@ class OpcodeFuncs:
 ############################################################
     @staticmethod
     def GT(instr):
-        AuxFuncs.check_arg(instr, "GT", 1, "var")
-        AuxFuncs.check_arg(instr, "GT", 2, "symb")
-        AuxFuncs.check_arg(instr, "GT", 3, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "GT", 1, 3)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "GT", 2, 3)
+        thirdarg_pos = AuxFuncs.arg_enumerate(instr, "GT", 3, 3)
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        AuxFuncs.check_arg(instr, "GT", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "GT", secondarg_pos, "symb")
+        AuxFuncs.check_arg(instr, "GT", thirdarg_pos, "symb")
 
-        type1 = AuxFuncs.get_prefix(instr, 2)
-        type2 = AuxFuncs.get_prefix(instr, 3)
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
 
-        val1 = AuxFuncs.get_val(instr, 2)
-        val2 = AuxFuncs.get_val(instr, 3)
+        type1 = AuxFuncs.get_prefix(instr, secondarg_pos)
+        type2 = AuxFuncs.get_prefix(instr, thirdarg_pos)
+
+        if ((type1 == "unset_var") or (type2 == "unset_var")):
+            STDERR(f"ERROR[56]: GT received an argument which is unset (missing a value)\n")
+            AuxFuncs.error_cleanup(56)
+
+        val1 = AuxFuncs.get_val(instr, secondarg_pos)
+        val2 = AuxFuncs.get_val(instr, thirdarg_pos)
 
         if ((type1 == "i.") and (type2 == "i.")):
             if (int(val1) > int(val2)):
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.true"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
             else:
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.false"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.false"
         elif ((type1 == "b.") and (type2 == "b.")):
             if ((val1 == "false") or ((val1 == "true") and (val2 == "true"))):
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.false"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.false"
             else: #the only time val1 can be more than val2 is if val1=true and val2=false 
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.true"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
         elif ((type1 == "s.") and (type2 == "s.")):
             if (val1 > val2): #python handles string comparisons lexicographically already
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.true"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
             else:
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.false"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.false"
         elif ((type1 == "n.") or (type2 == "n.")):
             STDERR("ERROR[53]: GT received 'nil' as an attribute\n")
             AuxFuncs.error_cleanup(53)
@@ -588,149 +738,195 @@ class OpcodeFuncs:
 ############################################################
     @staticmethod
     def EQ(instr):
-        AuxFuncs.check_arg(instr, "EQ", 1, "var")
-        AuxFuncs.check_arg(instr, "EQ", 2, "symb")
-        AuxFuncs.check_arg(instr, "EQ", 3, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "EQ", 1, 3)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "EQ", 2, 3)
+        thirdarg_pos = AuxFuncs.arg_enumerate(instr, "EQ", 3, 3)
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        AuxFuncs.check_arg(instr, "EQ", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "EQ", secondarg_pos, "symb")
+        AuxFuncs.check_arg(instr, "EQ", thirdarg_pos, "symb")
 
-        type1 = AuxFuncs.get_prefix(instr, 2)
-        type2 = AuxFuncs.get_prefix(instr, 3)
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
 
-        val1 = AuxFuncs.get_val(instr, 2)
-        val2 = AuxFuncs.get_val(instr, 3)
+        type1 = AuxFuncs.get_prefix(instr, secondarg_pos)
+        type2 = AuxFuncs.get_prefix(instr, thirdarg_pos)
+
+        if ((type1 == "unset_var") or (type2 == "unset_var")):
+            STDERR(f"ERROR[56]: EQ received an argument which is unset (missing a value)\n")
+            AuxFuncs.error_cleanup(56)
+
+        val1 = AuxFuncs.get_val(instr, secondarg_pos)
+        val2 = AuxFuncs.get_val(instr, thirdarg_pos)
 
         if ((type1 == "i.") and (type2 == "i.")):
             if (int(val1) == int(val2)):
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.true"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
             else:
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.false"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.false"
         elif ((type1 == "b.") and (type2 == "b.")):
             if (((val1 == "true") and (val2 == "true")) or ((val1 == "false") and (val2 == "false"))):
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.true"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
             else:
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.false"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.false"
         elif ((type1 == "s.") and (type2 == "s.")):
             if (val1 == val2): #python handles string comparisons lexicographically already
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.true"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
             else:
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.false"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.false"
         elif ((type1 == "n.") or (type2 == "n.")):
             if (val1 == val2):
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.true"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
             else:
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.false"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.false"
         else:
             STDERR("ERROR[53]: EQ received an attempt at comparing two attributes of different types\n")
             AuxFuncs.error_cleanup(53)
 ############################################################
     @staticmethod
     def AND(instr):
-        AuxFuncs.check_arg(instr, "AND", 1, "var")
-        AuxFuncs.check_arg(instr, "AND", 2, "symb")
-        AuxFuncs.check_arg(instr, "AND", 3, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "AND", 1, 3)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "AND", 2, 3)
+        thirdarg_pos = AuxFuncs.arg_enumerate(instr, "AND", 3, 3)
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        AuxFuncs.check_arg(instr, "AND", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "AND", secondarg_pos, "symb")
+        AuxFuncs.check_arg(instr, "AND", thirdarg_pos, "symb")
 
-        type1 = AuxFuncs.get_prefix(instr, 2)
-        type2 = AuxFuncs.get_prefix(instr, 3)
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
 
-        val1 = AuxFuncs.get_val(instr, 2)
-        val2 = AuxFuncs.get_val(instr, 3)
+        type1 = AuxFuncs.get_prefix(instr, secondarg_pos)
+        type2 = AuxFuncs.get_prefix(instr, thirdarg_pos)
+
+        if ((type1 == "unset_var") or (type2 == "unset_var")):
+            STDERR(f"ERROR[56]: AND received an argument which is unset (missing a value)\n")
+            AuxFuncs.error_cleanup(56)
+
+        val1 = AuxFuncs.get_val(instr, secondarg_pos)
+        val2 = AuxFuncs.get_val(instr, thirdarg_pos)
 
         if ((type1 == "b.") and (type2 == "b.")):
             if ((val1 == "true") and (val2 == "true")):
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.true"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
             else:
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.false"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.false"
         else:
             STDERR("ERROR[53]: AND received at least one attribute not of boolean type\n")
             AuxFuncs.error_cleanup(53)
 ############################################################
     @staticmethod
     def OR(instr):
-        AuxFuncs.check_arg(instr, "OR", 1, "var")
-        AuxFuncs.check_arg(instr, "OR", 2, "symb")
-        AuxFuncs.check_arg(instr, "OR", 3, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "OR", 1, 3)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "OR", 2, 3)
+        thirdarg_pos = AuxFuncs.arg_enumerate(instr, "OR", 3, 3)
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        AuxFuncs.check_arg(instr, "OR", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "OR", secondarg_pos, "symb")
+        AuxFuncs.check_arg(instr, "OR", thirdarg_pos, "symb")
 
-        type1 = AuxFuncs.get_prefix(instr, 2)
-        type2 = AuxFuncs.get_prefix(instr, 3)
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
 
-        val1 = AuxFuncs.get_val(instr, 2)
-        val2 = AuxFuncs.get_val(instr, 3)
+        type1 = AuxFuncs.get_prefix(instr, secondarg_pos)
+        type2 = AuxFuncs.get_prefix(instr, thirdarg_pos)
+
+        if ((type1 == "unset_var") or (type2 == "unset_var")):
+            STDERR(f"ERROR[56]: OR received an argument which is unset (missing a value)\n")
+            AuxFuncs.error_cleanup(56)
+
+        val1 = AuxFuncs.get_val(instr, secondarg_pos)
+        val2 = AuxFuncs.get_val(instr, thirdarg_pos)
 
         if ((type1 == "b.") and (type2 == "b.")):
             if ((val1 == "true") or (val2 == "true")):
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.true"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
             else:
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.false"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.false"
         else:
             STDERR("ERROR[53]: OR received at least one attribute not of boolean type\n")
             AuxFuncs.error_cleanup(53)
 ############################################################
     @staticmethod
     def NOT(instr):
-        AuxFuncs.check_arg(instr, "NOT", 1, "var")
-        AuxFuncs.check_arg(instr, "NOT", 2, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "NOT", 1, 2)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "NOT", 2, 2)
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        AuxFuncs.check_arg(instr, "NOT", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "NOT", secondarg_pos, "symb")
 
-        type = AuxFuncs.get_prefix(instr, 2)
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
 
-        val = AuxFuncs.get_val(instr, 2)
+        type = AuxFuncs.get_prefix(instr, secondarg_pos)
+
+        if (type == "unset_var"):
+            STDERR(f"ERROR[56]: NOT received an argument which is unset (missing a value)\n")
+            AuxFuncs.error_cleanup(56)
+
+        val = AuxFuncs.get_val(instr, secondarg_pos)
 
         if (type == "b."):
             if (val == "true"):
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.false"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.false"
             else:
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.true"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
         else:
             STDERR("ERROR[53]: NOT received attribute not of boolean type\n")
             AuxFuncs.error_cleanup(53)
 ############################################################
     @staticmethod
     def INT2CHAR(instr):
-        AuxFuncs.check_arg(instr, "INT2CHAR", 1, "var")
-        AuxFuncs.check_arg(instr, "INT2CHAR", 2, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "INT2CHAR", 1, 2)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "INT2CHAR", 2, 2)
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        AuxFuncs.check_arg(instr, "INT2CHAR", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "INT2CHAR", secondarg_pos, "symb")
 
-        type = AuxFuncs.get_prefix(instr, 2)
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
 
-        val = AuxFuncs.get_val(instr, 2)
+        type = AuxFuncs.get_prefix(instr, secondarg_pos)
+
+        if (type == "unset_var"):
+            STDERR(f"ERROR[56]: INT2CHAR received an argument which is unset (missing a value)\n")
+            AuxFuncs.error_cleanup(56)
+
+        val = AuxFuncs.get_val(instr, secondarg_pos)
 
         if (type != "i."):
-            STDERR("ERROR[32]: INT2CHAR encountered an attempt at converting a value that isn't an integer or in Unicode format\n")
-            AuxFuncs.error_cleanup(32)
+            STDERR("ERROR[53]: INT2CHAR encountered an attempt at converting a value that isn't an integer or in Unicode format\n")
+            AuxFuncs.error_cleanup(53)
         elif int(val) not in range(0, 1114111):
             STDERR("ERROR[58]: INT2CHAR encountered an attempt at converting a value out of possible range\n")
             AuxFuncs.error_cleanup(58)
         else:
-            globals()[frame][instr[0].text[3:len(instr[0].text)]] = chr(val)
+            globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "s." + str(chr(int(val)))
 ############################################################
     @staticmethod
     def STRI2INT(instr):
-        AuxFuncs.check_arg(instr, "STRI2INT", 1, "var")
-        AuxFuncs.check_arg(instr, "STRI2INT", 2, "symb")
-        AuxFuncs.check_arg(instr, "STRI2INT", 3, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "STR2INT", 1, 3)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "STR2INT", 2, 3)
+        thirdarg_pos = AuxFuncs.arg_enumerate(instr, "STR2INT", 3, 3)
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        AuxFuncs.check_arg(instr, "STRI2INT", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "STRI2INT", secondarg_pos, "symb")
+        AuxFuncs.check_arg(instr, "STRI2INT", thirdarg_pos, "symb")
 
-        type = AuxFuncs.get_prefix(instr, 3)
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
 
-        symb1 = AuxFuncs.get_val(instr, 2)
-        symb2 = AuxFuncs.get_val(instr, 3)
+        type = AuxFuncs.get_prefix(instr, thirdarg_pos)
+
+        if (type == "unset_var"):
+            STDERR(f"ERROR[56]: STRI2INT received an argument which is unset (missing a value)\n")
+            AuxFuncs.error_cleanup(56)
+
+        symb1 = AuxFuncs.get_val(instr, secondarg_pos)
+        symb2 = AuxFuncs.get_val(instr, thirdarg_pos)
 
         if (type != "i."):
-            STDERR("ERROR[32]: STRI2INT received a value that isn't an integer as its second argument\n")
-            AuxFuncs.error_cleanup(32)
+            STDERR("ERROR[53]: STRI2INT received a value that isn't an integer as its second argument\n")
+            AuxFuncs.error_cleanup(53)
         elif int(symb2) not in range(0, len(symb1)):
             STDERR("ERROR[58]: STRI2INT encountered an attempt at accessing a character outside of string range\n")
             AuxFuncs.error_cleanup(58)
         else:
-            globals()[frame][instr[0].text[3:len(instr[0].text)]] = ord(symb1[symb2])
+            globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "i." + ord(symb1[symb2])
 ############################################################
 ##
 # READ:  lightly tested
@@ -739,34 +935,37 @@ class OpcodeFuncs:
 ############################################################
     @staticmethod
     def READ(instr):
-        AuxFuncs.check_arg(instr, "READ", 1, "var")
-        AuxFuncs.check_arg(instr, "READ", 2, "type")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "READ", 1, 2)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "READ", 2, 2)
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        AuxFuncs.check_arg(instr, "READ", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "READ", secondarg_pos, "type")
+
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
 
         loaded = input()
         
         if (instr[1].text == "int"):
             if (loaded.lstrip("-").isdigit() == 1):
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "i." + str(loaded)
-            else:
-                STDERR("ERROR[32]: found an ambiguous argument of type 'int' which doesn't contain an integer\n")
-                AuxFuncs.error_cleanup(32)
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "i." + str(loaded)
+            else: # wrong input type
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "n.nil"
         elif (instr[1].text == "bool"):
             if (((loaded.lower() == "true")) or (loaded.lower() == "false")):
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b." + str(loaded.lower())
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b." + str(loaded.lower())
             elif (loaded == "1"):
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.true"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
             elif (loaded == "0"):
-                globals()[frame][instr[0].text[3:len(instr[0].text)]] = "b.false"
-            else:
-                STDERR("ERROR[32]: found an ambiguous argument of type 'bool' which doesn't contain a boolean value\n")
-                AuxFuncs.error_cleanup(32)
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.false"
+            else: # wrong input type
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "n.nil"
         elif (instr[1].text == "string"):
-            globals()[frame][instr[0].text[3:len(instr[0].text)]] = "s." + str(loaded)
+            globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "s." + str(loaded)
 ############################################################
     @staticmethod
     def WRITE(instr):
+        AuxFuncs.argcnt_check(instr, "WRITE", 1, 1, True)
+
         AuxFuncs.check_arg(instr, "WRITE", 1, "symb")
 
         type = AuxFuncs.get_prefix(instr, 1)
@@ -775,9 +974,32 @@ class OpcodeFuncs:
             STDOUT("")
         if(instr[0].attrib['type'] == "var"):
             frame = AuxFuncs.get_frame(instr, 1)
-            STDOUT(str(globals()[frame][instr[0].text[3:len(instr[0].text)]][2:len(globals()[frame][instr[0].text[3:len(instr[0].text)]])]))
+            if (type == "unset_var"):
+                STDERR(f"ERROR[56]: WRITE received an argument which is unset (missing a value)\n")
+                AuxFuncs.error_cleanup(56)
+            elif (type == "NULL"): # var was somewhat initialized (already handled) but with TYPE where TYPE inserted only NULL
+                STDOUT("")
+            elif (type == "s."):
+                string = str(globals()[frame][instr[0].text[3:len(instr[0].text)]][2:len(globals()[frame][instr[0].text[3:len(instr[0].text)]])])
+                string = re.sub("\\\\032", ' ', string)
+                string = re.sub("\\\\010", '\n', string)
+                string = string.encode('utf-8')
+                string = string.decode('unicode_escape').encode('latin1').decode('utf-8')
+                STDOUT(string)
+            elif (type == "type"):
+                STDOUT(str(globals()[frame][instr[0].text[3:len(instr[0].text)]]))
+            else:
+                STDOUT(str(globals()[frame][instr[0].text[3:len(instr[0].text)]][2:len(globals()[frame][instr[0].text[3:len(instr[0].text)]])]))
         else:
-            STDOUT(str(instr[0].text))
+            if (type == "s."):
+                string = str(instr[0].text)
+                string = re.sub("\\\\032", ' ', string)
+                string = re.sub("\\\\010", '\n', string)
+                string = string.encode('utf-8')
+                string = string.decode('unicode_escape').encode('latin1').decode('utf-8')
+                STDOUT(string)
+            else:
+                STDOUT(str(instr[0].text))
 ############################################################
 ##
 # CONCAT:  not tested
@@ -788,82 +1010,113 @@ class OpcodeFuncs:
 ############################################################
     @staticmethod
     def CONCAT(instr):
-        AuxFuncs.check_arg(instr, "CONCAT", 1, "var")
-        AuxFuncs.check_arg(instr, "CONCAT", 2, "symb")
-        AuxFuncs.check_arg(instr, "CONCAT", 3, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "CONCAT", 1, 3)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "CONCAT", 2, 3)
+        thirdarg_pos = AuxFuncs.arg_enumerate(instr, "CONCAT", 3, 3)
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        AuxFuncs.check_arg(instr, "CONCAT", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "CONCAT", secondarg_pos, "symb")
+        AuxFuncs.check_arg(instr, "CONCAT", thirdarg_pos, "symb")
 
-        type1 = AuxFuncs.get_prefix(instr, 2)
-        type2 = AuxFuncs.get_prefix(instr, 3)
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
 
-        string1 = AuxFuncs.get_val(instr, 2)
-        string2 = AuxFuncs.get_val(instr, 3)
+        type1 = AuxFuncs.get_prefix(instr, secondarg_pos)
+        type2 = AuxFuncs.get_prefix(instr, thirdarg_pos)
+        
+        if ((type1 == "unset_var") or (type2 == "unset_var")):
+            STDERR(f"ERROR[56]: CONCAT received an argument which is unset (missing a value)\n")
+            AuxFuncs.error_cleanup(56)
+
+        string1 = AuxFuncs.get_val(instr, secondarg_pos)
+        string2 = AuxFuncs.get_val(instr, thirdarg_pos)
 
         if ((type1 == "s.") and (type2 == "s.")):
-            globals()[frame][instr[0].text[3:len(instr[0].text)]] = "s." + string1 + string2
+            globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "s." + string1 + string2
         else:
-            STDERR("ERROR[32]: CONCAT received at least one argument not of type 'string'\n")
-            AuxFuncs.error_cleanup(32)
+            STDERR("ERROR[53]: CONCAT received at least one argument not of type 'string'\n")
+            AuxFuncs.error_cleanup(53)
 ############################################################
     @staticmethod
     def STRLEN(instr):
-        AuxFuncs.check_arg(instr, "STRLEN", 1, "var")
-        AuxFuncs.check_arg(instr, "STRLEN", 2, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "STRLEN", 1, 2)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "STRLEN", 2, 2)
+        
+        AuxFuncs.check_arg(instr, "STRLEN", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "STRLEN", secondarg_pos, "symb")
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
 
-        type = AuxFuncs.get_prefix(instr, 2)
+        type = AuxFuncs.get_prefix(instr, secondarg_pos)
 
-        string = AuxFuncs.get_val(instr, 2)
+        if (type == "unset_var"):
+            STDERR(f"ERROR[56]: STRLEN received an argument which is unset (missing a value)\n")
+            AuxFuncs.error_cleanup(56)
+
+        string = AuxFuncs.get_val(instr, secondarg_pos)
 
         if (type == "s."):
-            globals()[frame][instr[0].text[3:len(instr[0].text)]] = "i." + str(len(string))
+            globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "i." + str(len(string))
         else:
-            STDERR("ERROR[32]: STRLEN received an argument not of type 'string'\n")
-            AuxFuncs.error_cleanup(32)
+            STDERR("ERROR[53]: STRLEN received an argument not of type 'string'\n")
+            AuxFuncs.error_cleanup(53)
 ############################################################
     @staticmethod
     def GETCHAR(instr):
-        AuxFuncs.check_arg(instr, "GETCHAR", 1, "var")
-        AuxFuncs.check_arg(instr, "GETCHAR", 2, "symb")
-        AuxFuncs.check_arg(instr, "GETCHAR", 3, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "GETCHAR", 1, 3)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "GETCHAR", 2, 3)
+        thirdarg_pos = AuxFuncs.arg_enumerate(instr, "GETCHAR", 3, 3)
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        AuxFuncs.check_arg(instr, "GETCHAR", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "GETCHAR", secondarg_pos, "symb")
+        AuxFuncs.check_arg(instr, "GETCHAR", thirdarg_pos, "symb")
 
-        type1 = AuxFuncs.get_prefix(instr, 2)
-        type2 = AuxFuncs.get_prefix(instr, 3)
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
 
-        string = AuxFuncs.get_val(instr, 2)
-        position = AuxFuncs.get_val(instr, 3)
+        type1 = AuxFuncs.get_prefix(instr, secondarg_pos)
+        type2 = AuxFuncs.get_prefix(instr, thirdarg_pos)
+
+        if ((type1 == "unset_var") or (type2 == "unset_var")):
+            STDERR(f"ERROR[56]: GETCHAR received an argument which is unset (missing a value)\n")
+            AuxFuncs.error_cleanup(56)
+
+        string = AuxFuncs.get_val(instr, secondarg_pos)
+        position = AuxFuncs.get_val(instr, thirdarg_pos)
 
         if ((type1 != "s.") or (type2 != "i.")):
-            STDERR("ERROR[32]: GETCHAR received either non-string as second argument or non-integer as third argument\n")
-            AuxFuncs.error_cleanup(32)
+            STDERR("ERROR[53]: GETCHAR received either non-string as second argument or non-integer as third argument\n")
+            AuxFuncs.error_cleanup(53)
         elif int(position) not in range(0, len(string)):
             STDERR("ERROR[58]: GETCHAR encountered an attempt at accessing a character outside of string range\n")
             AuxFuncs.error_cleanup(58)
         else:
-            globals()[frame][instr[0].text[3:len(instr[0].text)]] = str(string[position])
+            globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "s." + str(string[int(position)])
 ############################################################
     @staticmethod
     def SETCHAR(instr):
-        AuxFuncs.check_arg(instr, "SETCHAR", 1, "var")
-        AuxFuncs.check_arg(instr, "SETCHAR", 2, "symb")
-        AuxFuncs.check_arg(instr, "SETCHAR", 3, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "SETCHAR", 1, 3)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "SETCHAR", 2, 3)
+        thirdarg_pos = AuxFuncs.arg_enumerate(instr, "SETCHAR", 3, 3)
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        AuxFuncs.check_arg(instr, "SETCHAR", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "SETCHAR", secondarg_pos, "symb")
+        AuxFuncs.check_arg(instr, "SETCHAR", thirdarg_pos, "symb")
 
-        type1 = AuxFuncs.get_prefix(instr, 1)
-        type2 = AuxFuncs.get_prefix(instr, 2)
-        type3 = AuxFuncs.get_prefix(instr, 3)
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
 
-        position = AuxFuncs.get_val(instr, 2)
-        newchar = AuxFuncs.get_val(instr, 3)
+        type1 = AuxFuncs.get_prefix(instr, firstarg_pos)
+        type2 = AuxFuncs.get_prefix(instr, secondarg_pos)
+        type3 = AuxFuncs.get_prefix(instr, thirdarg_pos)
+
+        if ((type1 == "unset_var") or (type2 == "unset_var") or (type3 == "unset_var")):
+            STDERR(f"ERROR[56]: SETCHAR received an argument which is unset (missing a value)\n")
+            AuxFuncs.error_cleanup(56)
+
+        position = AuxFuncs.get_val(instr, secondarg_pos)
+        newchar = AuxFuncs.get_val(instr, thirdarg_pos)
 
         if ((type1 != "s.") or (type2 != "i.") or (type3 != "s.")):
-            STDERR("ERROR[32]: SETCHAR received either non-string as first or third argument or non-integer as second argument\n")
-            AuxFuncs.error_cleanup(32)
+            STDERR("ERROR[53]: SETCHAR received either non-string as first or third argument or non-integer as second argument\n")
+            AuxFuncs.error_cleanup(53)
         elif int(position) not in range(0, len(globals()[frame][instr[0].text[3:len(instr[0].text)]])):
             STDERR("ERROR[58]: SETCHAR encountered an attempt at accessing a character outside of string range\n")
             AuxFuncs.error_cleanup(58)
@@ -871,8 +1124,8 @@ class OpcodeFuncs:
             STDERR("ERROR[58]: third argument received by SETCHAR is an empty string (no character to replace with)\n")
             AuxFuncs.error_cleanup(58)
         else:
-            globals()[frame][instr[0].text[3:len(instr[0].text)]] = globals()[frame][instr[0].text[3:len(instr[0].text)]][0:position] +   \
-            newchar[0] + globals()[frame][instr[0].text[3:len(instr[0].text)]][position+1:len(globals()[frame][instr[0].text[3:len(instr[0].text)]])]
+            globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]][0:position] +   \
+            newchar[0] + globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]][position+1:len(globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]])]
 ############################################################
 ##
 # TYPE: not tested
@@ -880,23 +1133,26 @@ class OpcodeFuncs:
 ############################################################
     @staticmethod
     def TYPE(instr):
-        AuxFuncs.check_arg(instr, "TYPE", 1, "var")
-        AuxFuncs.check_arg(instr, "TYPE", 2, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "TYPE", 1, 2)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "TYPE", 2, 2)
 
-        frame = AuxFuncs.get_frame(instr, 1)
+        AuxFuncs.check_arg(instr, "TYPE", firstarg_pos, "var")
+        AuxFuncs.check_arg(instr, "TYPE", secondarg_pos, "symb")
 
-        type = AuxFuncs.get_prefix(instr, 2)
+        frame = AuxFuncs.get_frame(instr, firstarg_pos)
 
-        if (type == "unit_var"):
-            globals()[frame][instr[0].text[3:len(instr[0].text)]] = ""
+        type = AuxFuncs.get_prefix(instr, secondarg_pos)
+
+        if (type == "unset_var"):
+            globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "NULL"
         elif (type == "i."):
-            globals()[frame][instr[0].text[3:len(instr[0].text)]] = "int"
+            globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "int"
         elif (type == "n."):
-            globals()[frame][instr[0].text[3:len(instr[0].text)]] = "nil"
+            globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "nil"
         elif (type == "b."):
-            globals()[frame][instr[0].text[3:len(instr[0].text)]] = "bool"
+            globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "bool"
         elif (type == "s."):
-            globals()[frame][instr[0].text[3:len(instr[0].text)]] = "string"
+            globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "string"
 ############################################################
 ##
 # LABEL:     lightly tested
@@ -908,9 +1164,15 @@ class OpcodeFuncs:
 ############################################################
     @staticmethod
     def LABEL(instr):
+        AuxFuncs.argcnt_check(instr, "LABEL", 1, 1, True)
+
         AuxFuncs.check_arg(instr, "LABEL", 1, "label")
 
         name = AuxFuncs.get_val(instr, 1)
+
+        if (instr[0].text in Labels_stack):
+            STDERR(f"ERROR[52]: duplicate '{instr.text}' label definition found\n")
+            AuxFuncs.error_cleanup(52)
 
         Labels_stack[name] = temp_ordernums_list.copy()
 ############################################################
@@ -919,6 +1181,8 @@ class OpcodeFuncs:
         global ordernums_list
         global instruct_position
         global Labels_stack
+
+        AuxFuncs.argcnt_check(instr, "JUMP", 1, 1, True)
 
         AuxFuncs.check_arg(instr, "JUMP", 1, "label")
 
@@ -934,17 +1198,25 @@ class OpcodeFuncs:
         global instruct_position
         global Labels_stack
 
-        AuxFuncs.check_arg(instr, "JUMPIFEQ", 1, "label")
-        AuxFuncs.check_arg(instr, "JUMPIFEQ", 2, "symb")
-        AuxFuncs.check_arg(instr, "JUMPIFEQ", 3, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "JUMPIFEQ", 1, 3)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "JUMPIFEQ", 2, 3)
+        thirdarg_pos = AuxFuncs.arg_enumerate(instr, "JUMPIFEQ", 3, 3)
 
-        name = AuxFuncs.get_val(instr, 1)
+        AuxFuncs.check_arg(instr, "JUMPIFEQ", firstarg_pos, "label")
+        AuxFuncs.check_arg(instr, "JUMPIFEQ", secondarg_pos, "symb")
+        AuxFuncs.check_arg(instr, "JUMPIFEQ", thirdarg_pos, "symb")
 
-        type1 = AuxFuncs.get_prefix(instr, 2)
-        type2 = AuxFuncs.get_prefix(instr, 3)
+        name = AuxFuncs.get_val(instr, firstarg_pos)
 
-        val1 = AuxFuncs.get_val(instr, 2)
-        val2 = AuxFuncs.get_val(instr, 3)
+        type1 = AuxFuncs.get_prefix(instr, secondarg_pos)
+        type2 = AuxFuncs.get_prefix(instr, thirdarg_pos)
+
+        if ((type1 == "unset_var") or (type2 == "unset_var")):
+            STDERR(f"ERROR[56]: JUMPIFEQ received an argument which is unset (missing a value)\n")
+            AuxFuncs.error_cleanup(56)
+
+        val1 = AuxFuncs.get_val(instr, secondarg_pos)
+        val2 = AuxFuncs.get_val(instr, thirdarg_pos)
 
         if ((type1 == "i.") and (type2 == "i.")):
             if (int(val1) == int(val2)):
@@ -972,17 +1244,25 @@ class OpcodeFuncs:
         global instruct_position
         global Labels_stack
 
-        AuxFuncs.check_arg(instr, "JUMPIFNEQ", 1, "label")
-        AuxFuncs.check_arg(instr, "JUMPIFNEQ", 2, "symb")
-        AuxFuncs.check_arg(instr, "JUMPIFNEQ", 3, "symb")
+        firstarg_pos = AuxFuncs.arg_enumerate(instr, "JUMPIFNEQ", 1, 3)
+        secondarg_pos = AuxFuncs.arg_enumerate(instr, "JUMPIFNEQ", 2, 3)
+        thirdarg_pos = AuxFuncs.arg_enumerate(instr, "JUMPIFNEQ", 3, 3)
 
-        name = AuxFuncs.get_val(instr, 1)
+        AuxFuncs.check_arg(instr, "JUMPIFNEQ", firstarg_pos, "label")
+        AuxFuncs.check_arg(instr, "JUMPIFNEQ", secondarg_pos, "symb")
+        AuxFuncs.check_arg(instr, "JUMPIFNEQ", thirdarg_pos, "symb")
 
-        type1 = AuxFuncs.get_prefix(instr, 2)
-        type2 = AuxFuncs.get_prefix(instr, 3)
+        name = AuxFuncs.get_val(instr, firstarg_pos)
 
-        val1 = AuxFuncs.get_val(instr, 2)
-        val2 = AuxFuncs.get_val(instr, 3)
+        type1 = AuxFuncs.get_prefix(instr, secondarg_pos)
+        type2 = AuxFuncs.get_prefix(instr, thirdarg_pos)
+
+        if ((type1 == "unset_var") or (type2 == "unset_var")):
+            STDERR(f"ERROR[56]: JUMPIFNEQ received an argument which is unset (missing a value)\n")
+            AuxFuncs.error_cleanup(56)
+
+        val1 = AuxFuncs.get_val(instr, secondarg_pos)
+        val2 = AuxFuncs.get_val(instr, thirdarg_pos)
 
         if ((type1 == "i.") and (type2 == "i.")):
             if (int(val1) != int(val2)):
@@ -1006,16 +1286,22 @@ class OpcodeFuncs:
 ############################################################
     @staticmethod
     def EXIT(instr, instrs_done):
+        AuxFuncs.argcnt_check(instr, "EXIT", 1, 1, True)
+
         AuxFuncs.check_arg(instr, "EXIT", 1, "symb")
 
         type = AuxFuncs.get_prefix(instr, 1)
+
+        if (type == "unset_var"):
+            STDERR(f"ERROR[56]: EXIT received an argument which is unset (missing a value)\n")
+            AuxFuncs.error_cleanup(56)
 
         val = AuxFuncs.get_val(instr, 1)
 
         if (type == "i."):
             if (int(val) not in range (0,50)):
                 print(f"val is:  {val}\n")
-                STDERR(f"ERROR[57]: EXIT given return value which is outside of predetermined range of 0 to 49 (included)")
+                STDERR(f"ERROR[57]: EXIT given return value which is outside of predetermined range of 0 to 49 (included)\n")
                 AuxFuncs.error_cleanup(57)
             else:
                 sys.stdout.flush()
@@ -1023,6 +1309,9 @@ class OpcodeFuncs:
                 STDERR(f"\n\nEXIT ENCOUNTERED, executing 'BREAK' for statictics output (in stderr) and shutting down\n\n")
                 OpcodeFuncs.BREAK(instr, instrs_done)
                 AuxFuncs.error_cleanup(int(val))
+        else:
+            STDERR(f"ERROR[53]: EXIT received an argument not of type int\n")
+            AuxFuncs.error_cleanup(53)
 ############################################################
 ##
 # DPRINT: not tested
@@ -1031,9 +1320,15 @@ class OpcodeFuncs:
 ############################################################
     @staticmethod
     def DPRINT(instr, instrs_done):
+        AuxFuncs.argcnt_check(instr, "DPRINT", 1, 1, True)
+
         AuxFuncs.check_arg(instr, "DPRINT", 1, "symb")
 
         type = AuxFuncs.get_prefix(instr, 1)
+
+        if (type == "unset_var"):
+            STDERR(f"ERROR[56]: DPRINT received an argument which is unset (missing a value)\n")
+            AuxFuncs.error_cleanup(56)
 
         if (type == "n."):
             STDERR("")
@@ -1110,17 +1405,33 @@ elif ((file_exists(f'{input_file}') == 0) and (input_file != "")):
     STDERR("ERROR[10]: file passed as --input not found\n")
     AuxFuncs.error_cleanup(10)
 
-#print(f"--Source file:  {source_file}")
+#STDERR(f"\n--Source file:  {source_file}\n")
 #print(f"--Input file:   {input_file}")
 #print(f"\n\n\n")
 
+#try to read input file
 if (input_file != ""):
-    sys.stdin = open(f'{input_file}', 'r')
+    try:
+        sys.stdin = open(f'{input_file}', 'r')
+    except OSError:
+        STDERR("ERROR[11]: file passed as --input couldn't be read\n")
+        AuxFuncs.error_cleanup(11)
 
+
+# try parsing source file or stdin
 if (source_file != ""):
-    mytree = ET.parse(f'{source_file}')
+    try:
+        mytree = ET.parse(f'{source_file}')
+    except ET.ParseError:
+        STDERR("ERROR[31]: wrong XML format of source file (file isn't so-called well-formed)\n")
+        AuxFuncs.error_cleanup(31)
 else:
-    mytree = ET.parse(f'{sys.stdin}')
+    try:
+        mytree = ET.parse(f'{sys.stdin}')
+    except ET.ParseError:
+        STDERR("ERROR[31]: wrong XML format of source file (file isn't so-called well-formed)\n")
+        AuxFuncs.error_cleanup(31)
+
 myroot = mytree.getroot()
 
 AuxFuncs.program_start_handle()
@@ -1151,11 +1462,11 @@ while instruct_position < instruct_cnt:
     for instr in myroot: # search through all instructions and
         if (int(instr.attrib['order']) == order_num): # find the one whose order number corresponds to searched one
             try:
-                opcode = getattr(class_opfuncs, instr.attrib['opcode'])
+                opcode = getattr(class_opfuncs, instr.attrib['opcode'].upper())
             except:
                 # shouldn't happen, as parser has already checked that all received OPCODEs are known
-                STDERR("Method %s not implemented\n" % instr.attrib['opcode'])
-                AuxFuncs.error_cleanup(666) #!!!
+                STDERR("ERROR[32]: Method %s not implemented\n" % instr.attrib['opcode'])
+                AuxFuncs.error_cleanup(32) #!!!
 
             if ((instr.attrib['opcode'] != "BREAK") and (instr.attrib['opcode'] != "DPRINT") and (instr.attrib['opcode'] != "EXIT") and (instr.attrib['opcode'] != "LABEL")):
                 opcode(instr)

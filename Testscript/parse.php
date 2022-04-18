@@ -581,11 +581,10 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 break;
 /** NOT ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
             case strcasecmp($word_arr[0], "NOT") == 0:
-                _general::opcode_start("NOT", $word_arr, 4);
+                _general::opcode_start("NOT", $word_arr, 3);
                 
                 _prints::create_var_print(1, $word_arr[1]);
                 _prints::create_symb_print(2, $word_arr[2]);
-                _prints::create_symb_print(3, $word_arr[3]);
                 
                 _general::$output .= "    </instruction>\n";
                 break;
@@ -599,8 +598,8 @@ while (($line = trim(fgets(STDIN))) || (! feof(STDIN))){ // reads one line from 
                 _general::$output .= "    </instruction>\n";
                 break;
 /** STR2INT ⟨var⟩ ⟨symb1⟩ ⟨symb2⟩ **/
-            case strcasecmp($word_arr[0], "STR2INT") == 0:
-                _general::opcode_start("STR2INT", $word_arr, 4);
+            case strcasecmp($word_arr[0], "STRI2INT") == 0:
+                _general::opcode_start("STRI2INT", $word_arr, 4);
                 
                 _prints::create_var_print(1, $word_arr[1]);
                 _prints::create_symb_print(2, $word_arr[2]);

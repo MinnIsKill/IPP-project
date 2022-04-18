@@ -1,0 +1,16 @@
+[Fatal Error] int.out:1:1:Premature end of file.
+org.xml.sax.SAXParseException; systemId: file:///mnt/d/SCHOOL/IPP/Projekt/IPP-project/Testscript/tests/parse-only/call/int.out; lineNumber: 1; columnNumber: 1; Premature end of file.
+	at java.xml/com.sun.org.apache.xerces.internal.parsers.AbstractSAXParser.parse(AbstractSAXParser.java:1243)
+	at java.xml/com.sun.org.apache.xerces.internal.jaxp.SAXParserImpl$JAXPSAXParser.parse(SAXParserImpl.java:635)
+	at com.a7soft.examxml.ExamXMLHandler.loadXML(ExamXMLHandler.java:111)
+	at com.a7soft.examxml.ExamXML.loadXML(ExamXML.java:246)
+	at com.a7soft.examxml.ExamXML.compare(ExamXML.java:213)
+	at com.a7soft.examxml.ExamXML.main(ExamXML.java:383)
+[Fatal Error] int-my_garbage.out:1:1:Premature end of file.
+org.xml.sax.SAXParseException; systemId: file:///mnt/d/SCHOOL/IPP/Projekt/IPP-project/Testscript/tests/parse-only/call/int-my_garbage.out; lineNumber: 1; columnNumber: 1; Premature end of file.
+	at java.xml/com.sun.org.apache.xerces.internal.parsers.AbstractSAXParser.parse(AbstractSAXParser.java:1243)
+	at java.xml/com.sun.org.apache.xerces.internal.jaxp.SAXParserImpl$JAXPSAXParser.parse(SAXParserImpl.java:635)
+	at com.a7soft.examxml.ExamXMLHandler.loadXML(ExamXMLHandler.java:111)
+	at com.a7soft.examxml.ExamXML.loadXML(ExamXML.java:247)
+	at com.a7soft.examxml.ExamXML.compare(ExamXML.java:213)
+	at com.a7soft.examxml.ExamXML.main(ExamXML.java:383)
