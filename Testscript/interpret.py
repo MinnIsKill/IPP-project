@@ -1,59 +1,64 @@
+#############################################################
 # XML interpreter
 # Task #2 for IPP Project VUTBR FIT
 # Author: xkalis03 (xkalis03@stud.fit.vutbr.cz)
 # 
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+# python3 interpret.py --source=name.src --input=name.in    #
+#############################################################
 
-# python3 interpret.py --source=name.src --input=name.in
-
-############################################################
-#                         IMPORTS                          #
-############################################################
+#############################################################
+#                         IMPORTS                           #
+#############################################################
 
 import xml.etree.ElementTree as ET # XML parsing module
-import sys
-import time
-import re
+import sys # general
+import re # regex support
 
-from sqlalchemy import true # for command line arguments reading
-from os.path import exists as file_exists
+from os.path import exists as file_exists # for checking whether file exists and is readable
 
-############################################################
-#                         GLOBALS                          #
-############################################################
+#############################################################
+#                         GLOBALS                           #
+#############################################################
+# strings to save source/input file names into
 stdin_file = ""
 input_file = ""
 source_file = ""
 
 instrs_done = 0  # how many instructions have already been successfully processed (except for DPRINT and BREAK)
 
+# printing macros
 STDERR = sys.stderr.write
 STDOUT = sys.stdout.write
 
-instruct_cnt = 0
-ordernums_list = []
-Labels_stack = {}
+instruct_cnt = 0 # how many instructions in total have been found in source file (used only at program start)
+ordernums_list = [] # list into which found order numbers for each instruction are saved
+Labels_stack = {} # dictionary of labels, program iterates through entire source file and looks for LABEL calls,
+                  # saves each new label name to this dictionary as a key and copies ordernums_list as it is at 
+                  # the moment the label was found into the label's value
 
 Call_stack = [] # for CALL and RETURN
 Call_stack_instrpos = [] # saves instruct positions for CALL and RETURN
 
-Frames_stack = [] # stack of pushed temporary frames, will be searched through before local frame
-pushed_TF_cnt = 0
+Frames_stack = [] # stack of pushed temporary frames
+pushed_TF_cnt = 0 # count of pushed temporary frames
 
-Data_stack = [] # data stack for values
+Data_stack = [] # data stack for values (for PUSHS and POPS)
 
 # - global frame is always active
 global_frame = {}
-# - local frame is basically just a stack of frames, at the start LF is at its top, but when a temporary frame gets
-#   pushed (PUSHFRAME), the TF is inserted at the top of LF and you lose access to LF (because it's now lower in the
-#   stack) until the TF at the top is popped (POPFRAME) back out.
+# - local frame is basically just a pointer to the top of the stack of frames
+# - undefined at program start, but when a temporary frame gets pushed (PUSHFRAME), the TF is inserted at the top 
+#   of LF and you lose access to any TF which could have been in LF before (because it's now lower in the stack) 
+#   until the TF at the top is popped (POPFRAME) back out.
 # - multiple temporary frames can be pushed to the top of LF
-# - local frame is undefined at program start
 local_frame = {"status": 0}  # not active
 # - temporary frame becomes active when CREATEFRAME is called
 temporary_frame = {"status": 0}  # not active
 
 #return_int = 0
 
+# help message printed when '--help' program argument is received, self-explanatory
 help_msg = "Script of type interpreter (interpreter.py in Python 3.8) loads an XML representation of program and,\n\
 using input from parameters entered from the command line, interprets this program and generates its output.\n\
 \n\
@@ -83,12 +88,17 @@ using input from parameters entered from the command line, interprets this progr
                 instruction exit\n\
         58      runtime interpretation error - incorrect string handling\n"
 
+
+
+
+
 ############################################################
 #                   AUXILIARY FUNCTIONS                    #
 ############################################################
 class AuxFuncs:
 ############################################################
-## checks input arguments for --help argument
+#### CHECK_HELPARG
+## - checks input arguments for --help argument
     @staticmethod
     def check_helparg():
         for i, arg in enumerate(sys.argv):
@@ -101,7 +111,8 @@ class AuxFuncs:
             # else no --help found
 
 ############################################################
-## handles everything needed to check and prepare to be able to continue to the program's main function
+#### CHECK_HELPARG
+## - handles everything needed to check and prepare to be able to continue to the program's main function
     @staticmethod
     def program_start_handle():
         # count the number of instructions in XML
@@ -127,6 +138,7 @@ class AuxFuncs:
                 ordernums_list.append(int(node.attrib['order']))
             found_instruct_cnt = found_instruct_cnt+1
 
+        # if we received something else in place of an instruction (wrong tag)
         if instruct_cnt != found_instruct_cnt:
             STDERR("ERROR[32]: found an unknown element in place of an instruction\n")
             AuxFuncs.error_cleanup(32)
@@ -135,34 +147,41 @@ class AuxFuncs:
         AuxFuncs.list_dupl_or_neg_check(ordernums_list)
 
 ############################################################
-## finds out if there are duplicate values in a list
+#### LIST_DUPL_OR_NEG_CHECK
+## - finds out if there are duplicate values in a list
+## - used for traversing list or order numbers and searching for duplicates (error)
     @staticmethod
     def list_dupl_or_neg_check(ordernums_list):
-        l1 = []
+        l1 = [] # dummy list
         for i in ordernums_list:
             if ((i not in l1) and (int(i) > 0)):
-                l1.append(i)
-            else:
+                l1.append(i) # append what's not in the list yet
+            else: # but if current number already is in the list -> ERROR
                 STDERR("ERROR[32]: duplicate or negative order numbers found\n")
                 l1.clear()
                 AuxFuncs.error_cleanup(32)
         l1.clear()
 
 ############################################################
-## used by opcodes to get positions or arguments (handles cases when arguments aren't in the right order)
-## also checks if number of arguments for given opcode is right
+#### ARG_ENUMERATE
+## - used by opcodes to get positions or arguments (handles cases when arguments aren't in the right order)
+## - also checks if number of arguments for given opcode is right by calling ARGCNT_CHECK
     @staticmethod
     def arg_enumerate(instr, opcode, num, numofargs):
         spot = 1
         
+        #check if number of arguments for given opcode is right
         AuxFuncs.argcnt_check(instr, opcode, num, numofargs, False)
 
+        # first arg is arg{num}
         if (instr[0].tag == "arg{}".format(num)):
             spot = 1
         elif numofargs > 1:
+            # second arg is arg{num}
             if (instr[1].tag == "arg{}".format(num)):
                 spot = 2
             elif numofargs == 3: #max 3 arguments
+                # third arg is arg{num}
                 if (instr[2].tag == "arg{}".format(num)):
                     spot = 3
                 else:
@@ -178,28 +197,32 @@ class AuxFuncs:
         return spot
 
 ############################################################
-## checks if number of arguments for given opcode is right
-## and if arguments are in the right format
+#### ARGCNT_CHECK
+## - checks if number of arguments for given opcode is right
+## - and if arguments are in the right format
     def argcnt_check(instr, opcode, num, numofargs, singlearg):
         arguments = list(instr)
-        # check if no arguments received (meaning arg1 is missing)
+        # check if no arguments received
         if (len(arguments) == 0):
             STDERR(f"ERROR[32]: no arguments received by {opcode}\n")
             AuxFuncs.error_cleanup(32)
+        # check if number of arguments received is exactly the amount the opcode needs
         elif (len(arguments) != numofargs):
             STDERR(f"ERROR[32]: {opcode} received either too little or too many arguments\n")
             AuxFuncs.error_cleanup(32)
-        # check argument tag
+        # check argument tag format (its 4th character, which should be a number (e.g. arg1))
         if (instr[num-1].tag[3].isdigit() == 0):
             STDERR(f"ERROR[32]: arguments received by {opcode} in wrong format\n")
             AuxFuncs.error_cleanup(32)
+        # if the opcode which called this function is an operation requiring only one argument
         if (singlearg == True):
             if (instr[0].tag != "arg1"):
                 STDERR(f"ERROR[32]: arguments received by {opcode} in wrong format\n")
                 AuxFuncs.error_cleanup(32)
 
 ############################################################
-## checks basic argument correctness (for further info check the comments inside the function)
+#### CHECK_ARG
+## - checks basic argument correctness (for further info check the comments inside the function)
 #<var>: var
 #<label>: label
 #<symb>: int, bool, string, nil, var
@@ -261,8 +284,9 @@ class AuxFuncs:
                 AuxFuncs.error_cleanup(52)
 
 ############################################################
-## mainly for arithmetics' purposes (ADD, SUB, MUL, IDIV)
-## checks if given attribute is of type int (returns its value) or not (error)
+#### SYMB_INT_CHECK_AND_RET
+## - mainly for arithmetics' purposes (ADD, SUB, MUL, IDIV)
+## - checks if given attribute is of type int (returns its value) or not (error)
     @staticmethod
     def symb_int_check_and_ret(instr, opcode, num):
         frame = AuxFuncs.get_frame(instr, num)
@@ -275,8 +299,8 @@ class AuxFuncs:
             if ((instr[num].text).lstrip("-").isdigit() == 1):
                 return instr[num].text
             else:
-                STDERR("ERROR[53]: bad operand value found: attribute of type 'int' does not contain an integer\n")
-                AuxFuncs.error_cleanup(53)
+                STDERR("ERROR[32]: bad operand value found: attribute of type 'int' does not contain an integer\n")
+                AuxFuncs.error_cleanup(32)
         elif (instr[num].attrib['type'] == "var"):
             if (globals()[frame][instr[num].text[3:len(instr[num].text)]][0:2] == "i."):
                 return globals()[frame][instr[num].text[3:len(instr[num].text)]][2:len(globals()[frame][instr[num].text[3:len(instr[num].text)]])]
@@ -288,7 +312,8 @@ class AuxFuncs:
             AuxFuncs.error_cleanup(53)
         
 ############################################################
-## handles program exit on error
+#### ERROR_CLEANUP
+## - handles program exit on error (not really necessary thanks to the garbage collector, I liked to have it implemented just in case)
     @staticmethod
     def error_cleanup(ID):
         ordernums_list.clear()
@@ -299,7 +324,8 @@ class AuxFuncs:
         sys.exit(ID)
 
 ############################################################
-## returns the prefix for the type of the passed argument
+#### GET_PREFIX
+## - returns the prefix for the type of the passed argument
     @staticmethod
     def get_prefix(instr, num):
         num = num - 1
@@ -337,7 +363,8 @@ class AuxFuncs:
             return "type"
 
 ############################################################
-## returns the value of the passed argument
+#### GET_VAL
+## - returns the value of the passed argument
     @staticmethod
     def get_val(instr, num):
         frame = AuxFuncs.get_frame(instr, num)
@@ -370,7 +397,8 @@ class AuxFuncs:
             return (globals()[frame][instr[num].text[3:len(instr[num].text)]][2:len(globals()[frame][instr[num].text[3:len(instr[num].text)]])])
 
 ############################################################
-## returns the frame the passed variable is saved in
+#### GET_FRAME
+## - returns the frame the passed variable is saved in
     @staticmethod
     def get_frame(instr, num):
         num = num - 1
@@ -381,19 +409,40 @@ class AuxFuncs:
                 return "local_frame"
             elif (instr[num].text[0:3] == "TF@"):
                 return "temporary_frame"
+
+############################################################
+#### ESCSEQ_DEC_REPLACE
+## - replaces decimal escapes in strings with corresponding char
+    @staticmethod
+    def escseq_dec_replace(s):
+        return re.sub(r"\\(\d\d\d)", lambda x: chr(int(x.group(1), 10)), s)
+
+
+
+
+
 ############################################################
 #                    OPCODES' FUNCTIONS                    #
 ############################################################
+##### NOTE: - the following functions are implementations of the instruction set of IPPcode22, taking their XML
+##            representation returned by parser.php and handling the execution of the exact steps needed to achieve
+##            the function these OPCODEs are supposed to implement
+##          - to check what function each individual OPCODE is maintaining, please refer to its corresponding
+##            description found in the task description pdf enclosed with this project. This file will NOT be providing 
+##            any further information on this matter
+##          - in similar spirit, to check what each auxiliary function used by the following functions does refer
+##            to its description in the 'AuxFuncs' class
+##          - commentary is provided where needed, but most of the time reading error message prints works best
 class OpcodeFuncs:
-#####
+############################################################
 ##
-# MOVE:        tested
-# CREATEFRAME: tested
-# PUSHFRAME:   tested
-# POPFRAME:    tested
-# DEFVAR:      tested
-# CALL:        
-# RETURN:      
+# MOVE        
+# CREATEFRAME 
+# PUSHFRAME   
+# POPFRAME    
+# DEFVAR      
+# CALL        
+# RETURN      
 ##
 ############################################################
     @staticmethod
@@ -469,7 +518,7 @@ class OpcodeFuncs:
             else:
                 STDERR("ERROR[52]: found an attempt at variable redefinition in global frame\n")
                 AuxFuncs.error_cleanup(52)
-        elif (instr[0].text[0:3] == "LF@"): #!!!  AND local frame was initiated
+        elif (instr[0].text[0:3] == "LF@"):
             if (local_frame["status"] == 0):
                 STDERR(f"ERROR[55]: {opcode} received a variable with reference to an uninitialized (or empty) frame stack\n")
                 AuxFuncs.error_cleanup(55)
@@ -529,8 +578,8 @@ class OpcodeFuncs:
         ordernums_list = Call_stack.pop() # remove and return last call save
 ############################################################
 ##
-# PUSHS: lightly tested
-# POPS:  lightly tested
+# PUSHS 
+# POPS  
 ##
 ############################################################
     @staticmethod
@@ -557,23 +606,27 @@ class OpcodeFuncs:
 
         frame = AuxFuncs.get_frame(instr, 1)
 
+        if (len(Data_stack) == 0):
+            STDERR(f"ERROR[56]: POPS encountered an attempt at popping from an empty Data stack\n")
+            AuxFuncs.error_cleanup(56)
+
         globals()[frame][instr[0].text[3:len(instr[0].text)]] = Data_stack[-1]
         
         del Data_stack[-1] #remove the copied value at top of stack
 ############################################################
 ##
-# ADD:      lightly tested
-# SUB:      lightly tested
-# MUL:      lightly tested
-# IDIV:     lightly tested
-# LT:       lightly tested
-# GT:       lightly tested
-# EQ:       lightly tested
-# AND:      lightly tested
-# OR:       lightly tested
-# NOT:      lightly tested
-# INT2CHAR: not tested
-# STRI2INT: not tested
+# ADD      
+# SUB      
+# MUL      
+# IDIV     
+# LT       
+# GT       
+# EQ       
+# AND      
+# OR       
+# NOT      
+# INT2CHAR 
+# STRI2INT 
 ##
 ############################################################
     @staticmethod
@@ -681,6 +734,8 @@ class OpcodeFuncs:
             else: #the only time val1 can be less than val2 is if val1=false and val2=true 
                 globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
         elif ((type1 == "s.") and (type2 == "s.")):
+            val1 = AuxFuncs.escseq_dec_replace(val1)
+            val2 = AuxFuncs.escseq_dec_replace(val2)
             if (val1 < val2): #python handles string comparisons lexicographically already
                 globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
             else:
@@ -725,6 +780,8 @@ class OpcodeFuncs:
             else: #the only time val1 can be more than val2 is if val1=true and val2=false 
                 globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
         elif ((type1 == "s.") and (type2 == "s.")):
+            val1 = AuxFuncs.escseq_dec_replace(val1)
+            val2 = AuxFuncs.escseq_dec_replace(val2)
             if (val1 > val2): #python handles string comparisons lexicographically already
                 globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
             else:
@@ -769,6 +826,8 @@ class OpcodeFuncs:
             else:
                 globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.false"
         elif ((type1 == "s.") and (type2 == "s.")):
+            val1 = AuxFuncs.escseq_dec_replace(val1)
+            val2 = AuxFuncs.escseq_dec_replace(val2)
             if (val1 == val2): #python handles string comparisons lexicographically already
                 globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
             else:
@@ -910,27 +969,31 @@ class OpcodeFuncs:
 
         frame = AuxFuncs.get_frame(instr, firstarg_pos)
 
-        type = AuxFuncs.get_prefix(instr, thirdarg_pos)
+        type1 = AuxFuncs.get_prefix(instr, secondarg_pos)
+        type2 = AuxFuncs.get_prefix(instr, thirdarg_pos)
 
-        if (type == "unset_var"):
+        if ((type1 == "unset_var") or (type2 == "unset_var")):
             STDERR(f"ERROR[56]: STRI2INT received an argument which is unset (missing a value)\n")
             AuxFuncs.error_cleanup(56)
 
         symb1 = AuxFuncs.get_val(instr, secondarg_pos)
         symb2 = AuxFuncs.get_val(instr, thirdarg_pos)
 
-        if (type != "i."):
-            STDERR("ERROR[53]: STRI2INT received a value that isn't an integer as its second argument\n")
+        if (type1 != "s."):
+            STDERR("ERROR[53]: STRI2INT received a value that isn't a string as its second argument\n")
+            AuxFuncs.error_cleanup(53)
+        elif (type2 != "i."):
+            STDERR("ERROR[53]: STRI2INT received a value that isn't an integer as its third argument\n")
             AuxFuncs.error_cleanup(53)
         elif int(symb2) not in range(0, len(symb1)):
             STDERR("ERROR[58]: STRI2INT encountered an attempt at accessing a character outside of string range\n")
             AuxFuncs.error_cleanup(58)
         else:
-            globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "i." + ord(symb1[symb2])
+            globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "i." + str(ord(symb1[int(symb2)]))
 ############################################################
 ##
-# READ:  lightly tested
-# WRITE: tested
+# READ  
+# WRITE 
 ##
 ############################################################
     @staticmethod
@@ -942,10 +1005,18 @@ class OpcodeFuncs:
         AuxFuncs.check_arg(instr, "READ", secondarg_pos, "type")
 
         frame = AuxFuncs.get_frame(instr, firstarg_pos)
+        loaded_err = False
 
-        loaded = input()
+        try:
+            loaded = input()
+        except:
+            loaded = ""
+            loaded_err = True
+
         
-        if (instr[1].text == "int"):
+        if (loaded_err == True):
+            globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "n.nil"
+        elif (instr[1].text == "int"):
             if (loaded.lstrip("-").isdigit() == 1):
                 globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "i." + str(loaded)
             else: # wrong input type
@@ -953,12 +1024,8 @@ class OpcodeFuncs:
         elif (instr[1].text == "bool"):
             if (((loaded.lower() == "true")) or (loaded.lower() == "false")):
                 globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b." + str(loaded.lower())
-            elif (loaded == "1"):
-                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.true"
-            elif (loaded == "0"):
-                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.false"
             else: # wrong input type
-                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "n.nil"
+                globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "b.false"
         elif (instr[1].text == "string"):
             globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "s." + str(loaded)
 ############################################################
@@ -972,7 +1039,7 @@ class OpcodeFuncs:
 
         if (type == "n."):
             STDOUT("")
-        if(instr[0].attrib['type'] == "var"):
+        elif(instr[0].attrib['type'] == "var"):
             frame = AuxFuncs.get_frame(instr, 1)
             if (type == "unset_var"):
                 STDERR(f"ERROR[56]: WRITE received an argument which is unset (missing a value)\n")
@@ -981,10 +1048,7 @@ class OpcodeFuncs:
                 STDOUT("")
             elif (type == "s."):
                 string = str(globals()[frame][instr[0].text[3:len(instr[0].text)]][2:len(globals()[frame][instr[0].text[3:len(instr[0].text)]])])
-                string = re.sub("\\\\032", ' ', string)
-                string = re.sub("\\\\010", '\n', string)
-                string = string.encode('utf-8')
-                string = string.decode('unicode_escape').encode('latin1').decode('utf-8')
+                string = AuxFuncs.escseq_dec_replace(string)
                 STDOUT(string)
             elif (type == "type"):
                 STDOUT(str(globals()[frame][instr[0].text[3:len(instr[0].text)]]))
@@ -993,19 +1057,16 @@ class OpcodeFuncs:
         else:
             if (type == "s."):
                 string = str(instr[0].text)
-                string = re.sub("\\\\032", ' ', string)
-                string = re.sub("\\\\010", '\n', string)
-                string = string.encode('utf-8')
-                string = string.decode('unicode_escape').encode('latin1').decode('utf-8')
+                string = AuxFuncs.escseq_dec_replace(string)
                 STDOUT(string)
             else:
                 STDOUT(str(instr[0].text))
 ############################################################
 ##
-# CONCAT:  not tested
-# STRLEN:  not tested
-# GETCHAR: not tested
-# SETCHAR: not tested
+# CONCAT  
+# STRLEN  
+# GETCHAR 
+# SETCHAR 
 ##
 ############################################################
     @staticmethod
@@ -1114,21 +1175,23 @@ class OpcodeFuncs:
         position = AuxFuncs.get_val(instr, secondarg_pos)
         newchar = AuxFuncs.get_val(instr, thirdarg_pos)
 
+        newchar = AuxFuncs.escseq_dec_replace(newchar)
+
         if ((type1 != "s.") or (type2 != "i.") or (type3 != "s.")):
             STDERR("ERROR[53]: SETCHAR received either non-string as first or third argument or non-integer as second argument\n")
             AuxFuncs.error_cleanup(53)
-        elif int(position) not in range(0, len(globals()[frame][instr[0].text[3:len(instr[0].text)]])):
+        elif int(position) not in range(0, len(globals()[frame][instr[0].text[3:len(instr[0].text)]])-2):
             STDERR("ERROR[58]: SETCHAR encountered an attempt at accessing a character outside of string range\n")
             AuxFuncs.error_cleanup(58)
         elif (newchar == ""):
             STDERR("ERROR[58]: third argument received by SETCHAR is an empty string (no character to replace with)\n")
             AuxFuncs.error_cleanup(58)
         else:
-            globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]][0:position] +   \
-            newchar[0] + globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]][position+1:len(globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]])]
+            globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]][0:int(position)+2] +   \
+            newchar[0] + globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]][int(position)+3:len(globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]])]
 ############################################################
 ##
-# TYPE: not tested
+# TYPE 
 ##
 ############################################################
     @staticmethod
@@ -1153,13 +1216,15 @@ class OpcodeFuncs:
             globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "bool"
         elif (type == "s."):
             globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "string"
+        elif (type == "type"):
+            globals()[frame][instr[firstarg_pos-1].text[3:len(instr[firstarg_pos-1].text)]] = "string"
 ############################################################
 ##
-# LABEL:     lightly tested
-# JUMP:      not tested
-# JUMPIFEQ:  lightly tested
-# JUMPIFNEQ: lightly tested
-# EXIT:      
+# LABEL     
+# JUMP      
+# JUMPIFEQ  
+# JUMPIFNEQ 
+# EXIT      
 ##
 ############################################################
     @staticmethod
@@ -1227,6 +1292,8 @@ class OpcodeFuncs:
                 instruct_position = instruct_position + (len(ordernums_list) - len(Labels_stack[name]))
                 ordernums_list = Labels_stack[name].copy()
         elif ((type1 == "s.") and (type2 == "s.")):
+            val1 = AuxFuncs.escseq_dec_replace(val1)
+            val2 = AuxFuncs.escseq_dec_replace(val2)
             if (val1 == val2): #python handles string comparisons lexicographically already
                 instruct_position = instruct_position + (len(ordernums_list) - len(Labels_stack[name]))
                 ordernums_list = Labels_stack[name].copy()
@@ -1273,6 +1340,8 @@ class OpcodeFuncs:
                 instruct_position = instruct_position + (len(ordernums_list) - len(Labels_stack[name]))
                 ordernums_list = Labels_stack[name].copy()
         elif ((type1 == "s.") and (type2 == "s.")):
+            val1 = AuxFuncs.escseq_dec_replace(val1)
+            val2 = AuxFuncs.escseq_dec_replace(val2)
             if (val1 != val2): #python handles string comparisons lexicographically already
                 instruct_position = instruct_position + (len(ordernums_list) - len(Labels_stack[name]))
                 ordernums_list = Labels_stack[name].copy()
@@ -1314,8 +1383,8 @@ class OpcodeFuncs:
             AuxFuncs.error_cleanup(53)
 ############################################################
 ##
-# DPRINT: not tested
-# BREAK:  not tested
+# DPRINT 
+# BREAK  
 ##
 ############################################################
     @staticmethod
@@ -1373,6 +1442,9 @@ class OpcodeFuncs:
         STDERR(f"\n")
 
 
+
+
+
 ############################################################
 #                           MAIN                           #
 ############################################################
@@ -1397,7 +1469,7 @@ if __name__ == "__main__":
         STDERR("ERROR[10]: insufficient number of input parameters\n")
         AuxFuncs.error_cleanup(10)
 
-#
+# try looking if files received as source or input actually exist
 if ((file_exists(f'{source_file}') == 0) and (source_file != "")):
     STDERR("ERROR[10]: file passed as --source not found\n")
     AuxFuncs.error_cleanup(10)
@@ -1405,11 +1477,7 @@ elif ((file_exists(f'{input_file}') == 0) and (input_file != "")):
     STDERR("ERROR[10]: file passed as --input not found\n")
     AuxFuncs.error_cleanup(10)
 
-#STDERR(f"\n--Source file:  {source_file}\n")
-#print(f"--Input file:   {input_file}")
-#print(f"\n\n\n")
-
-#try to read input file
+# try to read input file
 if (input_file != ""):
     try:
         sys.stdin = open(f'{input_file}', 'r')
@@ -1432,12 +1500,16 @@ else:
         STDERR("ERROR[31]: wrong XML format of source file (file isn't so-called well-formed)\n")
         AuxFuncs.error_cleanup(31)
 
+# get root of parsed tree
 myroot = mytree.getroot()
 
+# run first checks
 AuxFuncs.program_start_handle()
 
+# initialize frames stack
 Frames_stack.append(local_frame)
 
+# initialize class for opcode functions
 class_opfuncs = OpcodeFuncs
 
 #####
@@ -1454,7 +1526,6 @@ while i < instruct_cnt:
 
 #####
 ## MAIN LOOP
-#instr.attrib, instr.tag, instr.text, instr[0].text, instr.tail, instr.find("name")
 instruct_position = 0
 while instruct_position < instruct_cnt:
     order_num = min(ordernums_list) # get smallest order number from list
@@ -1466,21 +1537,23 @@ while instruct_position < instruct_cnt:
             except:
                 # shouldn't happen, as parser has already checked that all received OPCODEs are known
                 STDERR("ERROR[32]: Method %s not implemented\n" % instr.attrib['opcode'])
-                AuxFuncs.error_cleanup(32) #!!!
+                AuxFuncs.error_cleanup(32)
 
             if ((instr.attrib['opcode'] != "BREAK") and (instr.attrib['opcode'] != "DPRINT") and (instr.attrib['opcode'] != "EXIT") and (instr.attrib['opcode'] != "LABEL")):
                 opcode(instr)
                 instrs_done = instrs_done + 1
             elif (instr.attrib['opcode'] != "LABEL"):
                 opcode(instr, instrs_done)
-
-            #print('--' + instr.attrib['opcode'])
     instruct_position += 1
 
 
 ############################################################
 #                     AUXILIARY PRINTS                     #
 ############################################################
+#print(f"\n\n\n")
+
+#STDERR(f"\n--Source file:  {source_file}\n")
+#print(f"--Input file:   {input_file}")
 #print(f"\n\n\n")
 
 #OpcodeFuncs.BREAK("NULL", instrs_done)

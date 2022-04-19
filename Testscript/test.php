@@ -17,9 +17,12 @@
     through the optional parameter '--directory='
     when using '--directory=', another parameter '--recursive'
     can also be passed which will enable the test script to also
-    search through all subdirectories of given directory
+    search through all subdirectories of the given directory
     ------------------------------------------------------------
     php8.1 test.php --help
+    php8.1 test.php --directory=tests/both --jexampath=jexamxml --recursive
+    php8.1 test.php --directory=tests/parse-only --parse-only --jexampath=jexamxml --recursive
+    php8.1 test.php --directory=tests/interpret-only --int-only --recursive
     ------------------------------------------------------------
 **/
 
@@ -41,6 +44,9 @@ enum ErrHandles: int {
  *    - contains mainly functions used for debugging
  */
 class _Auxiliary {
+/** writeout_loadargs_result
+ *  - used for debug printing
+**/
     public static function writeout_loadargs_result(){
         echo "Source files found:  ";
         print_r(_general::$source_files);
@@ -86,8 +92,9 @@ class _general {
     public static $output; // array to which output is saved
     //public static $line_num = 1;
 
-    public static $argsfound_cnt = 0;
+    public static $argsfound_cnt = 0; // count of arguments received
     
+    // Variables for test script arguments (refer to $help_msg below to learn more about these)
     public static $directory = "";
     public static $recursive = FALSE;
     public static $parse_script = "parse.php";
@@ -97,17 +104,17 @@ class _general {
     public static $jexampath = "/pub/courses/ipp/jexamxml/";
     public static $noclean = FALSE;
 
-    public static $source_files = array();
+    public static $source_files = array(); // array of found source files for testing
 
-    public static $html_output;
+    public static $html_output; // HTML5 output string
 
-    // Array of test results
-    public static $resultsParse = [];
-    public static $resultsInt = [];
-    public static $resultsBoth = [];
-    public static $RCresults = [];
-    public static $RCresults_nums = [];
-    public static $RCresults_orig_nums = [];
+    // Arrays of test results
+    public static $resultsParse = []; // results of --parse-only
+    public static $resultsInt = [];   // results of --int-only
+    public static $resultsBoth = [];  // results of both parser and interpret
+    public static $RCresults = [];    // to save results of Return Codes comparison
+    public static $RCresults_nums = []; // to save final Return Codes of the scripts
+    public static $RCresults_orig_nums = []; // to save Return Codes which were supposed to be printed out
 
     public static $help_msg = // a static string printed out when '--help' is called
 "Script of type filter (parse.php in PHP 8.1) loads a source file written in IPPcode22 from stdin, checks the lexical
@@ -146,8 +153,11 @@ and syntactical correctness of written code and prints out its XML reprezentatio
                 jexamxml don't exist or are inaccessible\n";
 
 
-/** 
-* 
+/** arg_find
+ *  - used for finding arguments
+ *  - searches for received argument in script arguments using regex and saves/updates value of said argument if known
+ *  - handles receiving duplicate arguments (error)
+ *  - handles receiving paths or files which don't exist (error)
 **/
     public static function arg_find($argv, $argument){
         if (($argument == "recursive") || ($argument == "parse-only") || ($argument == "int-only") || ($argument == "noclean")){
@@ -227,8 +237,8 @@ and syntactical correctness of written code and prints out its XML reprezentatio
         Sort($argsearch);
     }
 
-/** 
-* 
+/** args_compatibility_check
+ *  - checks whether arguments that were received can actually go together (e.g. --parse-only can't go with --int-only)
 **/
     public static function args_compatibility_check($argv){
         if (_general::$parse_only == TRUE){
@@ -244,8 +254,10 @@ and syntactical correctness of written code and prints out its XML reprezentatio
         }
     }
 
-/** SCRIPT PARAMETERS HANDLING 
- * 
+/** load_args
+ *  - script arguments handling
+ *  - the "main" function for arguments loading, uses the other functions above
+ *  - also handles receiving an unknown argument
 **/
     public static function load_args($argv, $argc){
         // find '--help'
@@ -281,33 +293,35 @@ and syntactical correctness of written code and prints out its XML reprezentatio
         _general::args_compatibility_check($argv);
     }
 
-/** 
-* 
+/** load_testssrc
+ *  - searches for all *.src files and saves their path into the $source_files array
+ *  - searches recursively if '--recursive' argument was received
+ *  NOTE: - recursive search practically directly ripped off of https://www.php.net/manual/en/class.recursivedirectoryiterator.php
+ *        - go check RecursiveDirectoryIterator out, it's awesome
 **/
     public static function load_testssrc(){
-        if (_general::$recursive == TRUE){
-            /** NOTE: - practically directly ripped off https://www.php.net/manual/en/class.recursivedirectoryiterator.php
-            *         - go check RecursiveDirectoryIterator out, it's awesome   **/
+        if (_general::$recursive == TRUE){ // if '--recursive'
             $Directory = new RecursiveDirectoryIterator(_general::$directory);
             $Iterator = new RecursiveIteratorIterator($Directory);
             $Regex = new RegexIterator($Iterator, '/^.+\.src$/i', RecursiveRegexIterator::GET_MATCH);
             
-            foreach ($Regex as $file){
+            foreach ($Regex as $file){ // for each *.src file found, append its path to $source_files array
                 _general::$source_files = array_merge(_general::$source_files, $file);
             }
-        } else {
+        } else { // if no '--recursive'
             _general::$source_files = glob(_general::$directory."/*.src");
         }
     }
 
-/** 
-*   - saves results into their respective arrays found at the beginning of class _general
+/** run_tests
+ *  "main" testing function
+ *  - saves results into their respective arrays found at the beginning of class _general
 **/
     public static function run_tests(){
     // parsing
         if (_general::$int_only == FALSE){
             foreach(_general::$source_files as $file){
-                $file = substr($file, 0, -4); #cut away the last four characters (".src")
+                $file = substr($file, 0, -4); // cut away the last four characters (".src")
 
                 //if these files are missing, generate empty ones
                 if (!is_file("$file.in")){
@@ -319,18 +333,20 @@ and syntactical correctness of written code and prints out its XML reprezentatio
                     fclose($newfile);
                 }
                 
+                // initialize auxiliary vairables
                 $parser = _general::$parse_script;
-                $rc = 0;
+                $rc = 0; // return code
                 $output_dump = array();
 
+                // execute this line as if typed into the command line
                 exec("php8.1 $parser < $file.src > $file-my_garbage.out;", $output_dump, $rc);
-                $newfile = fopen("$file-my_garbage.rc", "w");
-                fwrite($newfile, $rc);
-                fclose($newfile);
+                $newfile = fopen("$file-my_garbage.rc", "w"); // create auxiliary file to save our RC into
+                fwrite($newfile, $rc); // write in the return code
+                fclose($newfile); // close the file
 
-                if (is_file("$file.rc")){
-                    $rc_orig = file_get_contents("$file.rc");
-                } else {
+                if (is_file("$file.rc")){ // if original .rc file exists
+                    $rc_orig = file_get_contents("$file.rc"); // get its contents
+                } else { // if original .rc file doesn't exist, create a new one and write in "0"
                     $newfile = fopen("$file.rc", "w");
                     fwrite($newfile, "0");
                     fclose($newfile);
@@ -351,13 +367,14 @@ and syntactical correctness of written code and prints out its XML reprezentatio
                     $jexamjar = _general::$jexampath . "jexamxml.jar";
                     $jexamops = _general::$jexampath . "options";
     
+                    // execute this line as if typed into the command line
                     exec("java -jar $jexamjar \"$file.out\" \"$file-my_garbage.out\" /dev/null  /D $jexamops", $output, $diff);
-                    if($diff == "0\n"){
+                    if($diff == "0\n"){ // jaxamxml says everything's fine
                         array_push(_general::$resultsParse, "true");
-                    } else {
+                    } else { // jaxamxml says things aren't that fine
                         $outFile = file_get_contents("$file.out");
                         $customOut = file_get_contents("$file-my_garbage.out");
-                        if($outFile == $customOut){
+                        if($outFile == $customOut){ // try comparing the files through copying their contents into a variable and then string comparing
                             array_push(_general::$resultsParse, "true");
                         } else {
                             array_push(_general::$resultsParse, "false");
@@ -369,21 +386,24 @@ and syntactical correctness of written code and prints out its XML reprezentatio
                     $detected_error = false;
                     $interpreter = _general::$int_script;
 
+                    // execute this line as if typed into the command line
                     exec("python3.8 $interpreter --source=$file-my_garbage.out --input=$file.in;", $output_dump, $rc);
-                    if ($rc == 0){
+                    if ($rc == 0){ // parser was successful, we can run interpreter
                         $output_dump = shell_exec("python3.8 $interpreter --source=$file-my_garbage.out --input=$file.in;");
-                    } else {
+                    } else { // parser ran into problems
                         $detected_error = true;
                     }
 
-                    if(is_file("$file-my_garbage.rc")){ 
-                        unlink("$file-my_garbage.rc"); 
+                    if(is_file("$file-my_garbage.rc")){ // if file exists (script previously ran with --noclean)
+                        unlink("$file-my_garbage.rc"); // delete file
                     }
 
+                    // create dummy .out file for output comparison
                     $newfile = fopen("$file-my_garbage.out", "w");
                     file_put_contents("$file-my_garbage.out", $output_dump);
                     fclose($newfile);
 
+                    // create dummy .rc file for RC comparison
                     $newfile = fopen("$file-my_garbage.rc", "w");
                     fwrite($newfile, $rc);
                     fclose($newfile);
@@ -398,9 +418,11 @@ and syntactical correctness of written code and prints out its XML reprezentatio
                         array_push(_general::$RCresults, "false");
                     }
 
+                    // read both original output and our output
                     $outFile = file_get_contents("$file.out");
                     $myoutFile = file_get_contents("$file-my_garbage.out");
 
+                    // compare outputs
                     if(($outFile == $myoutFile) || ($detected_error == true)){
                         array_push(_general::$resultsBoth, "true");
                     } else {
@@ -425,9 +447,10 @@ and syntactical correctness of written code and prints out its XML reprezentatio
                     $newfile = fopen("$file.out", "w");
                     fclose($newfile);
                 }
-                    
+                
+                // initialize auxiliary vairables
                 $parser = _general::$parse_script;
-                $rc = 0;
+                $rc = 0; // return code
                 $output_dump = array();
 
                 $detected_error = false;
@@ -442,17 +465,20 @@ and syntactical correctness of written code and prints out its XML reprezentatio
                     $rc_orig = file_get_contents("$file.rc");
                 }
 
+                // execute this line as if typed into the command line
                 exec("python3.8 $interpreter --source=$file.src --input=$file.in;", $output_dump, $rc);
-                if ($rc == 0){
+                if ($rc == 0){ // interpreter was successful, we can run it again to now get the output (exec will only return last line)
                     $output_dump = shell_exec("python3.8 $interpreter --source=$file.src --input=$file.in;");
-                } else {
+                } else { // interpret ran into problems
                     $detected_error = true;
                 }
 
+                // create dummy .rc file for RC comparison
                 $newfile = fopen("$file-my_garbage.rc", "w");
                 fwrite($newfile, $rc);
                 fclose($newfile);
 
+                // create dummy .out file for output comparison
                 $newfile = fopen("$file-my_garbage.out", "w");
                 file_put_contents("$file-my_garbage.out", $output_dump);
                 fclose($newfile);
@@ -467,9 +493,11 @@ and syntactical correctness of written code and prints out its XML reprezentatio
                     array_push(_general::$RCresults, "false");
                 }
 
+                // read both original output and our output
                 $outFile = file_get_contents("$file.out");
                 $myoutFile = file_get_contents("$file-my_garbage.out");
 
+                // compare outputs
                 if(($outFile == $myoutFile) || ($detected_error == true)){
                     array_push(_general::$resultsInt, "true");
                 } else {
@@ -477,13 +505,14 @@ and syntactical correctness of written code and prints out its XML reprezentatio
                 }
 
                 // always clean up after yourself
+                // removes auxiliary files created during test running (unless '--noclean' used)
                 _general::clean_up_garbage($file);
             }
         }
     }
 
-/** 
- * 
+/** clean_up_garbage
+ *  - removes auxiliary files created during test running (unless '--noclean' used)
 **/
     public static function clean_up_garbage($file){
         if (_general::$noclean == FALSE){
@@ -494,8 +523,8 @@ and syntactical correctness of written code and prints out its XML reprezentatio
         }
     }
 
-/** 
- * 
+/** print_result
+ *  - takes results from ran tests and saves an HTML5 code containing and showing the results into $html_output
 **/
     public static function print_result(){
         _general::$html_output .= 
@@ -528,10 +557,34 @@ and syntactical correctness of written code and prints out its XML reprezentatio
         else {_general::$html_output.=_general::$parse_script . ", " . _general::$int_script;}
         _general::$html_output .=
         "</h2>
-        <h3>Author: Vojtěch Kališ, xkalis03</h3>
+        <h3>Author: Vojtech Kalis, xkalis03</h3>
         <h4>Tests passed: ";
-        $successes = count(array_keys(_general::$RCresults, "true"));
+        $successes1 = count(array_keys(_general::$RCresults, "true"));
         $total = count(_general::$RCresults);
+
+        $successes = 0;
+        if (_general::$int_only == TRUE){ 
+            for ($i = 0; $i < $total; $i++){
+                if ((_general::$RCresults[$i] == "true") && (_general::$resultsInt[$i] == "true")){
+                    $successes++;
+                }
+            }
+        }
+        else if (_general::$parse_only == TRUE){ 
+            for ($i = 0; $i < $total; $i++){
+                if ((_general::$RCresults[$i] == "true") && (_general::$resultsParse[$i] == "true")){
+                    $successes++;
+                }
+            }
+        }
+        else {
+            for ($i = 0; $i < $total; $i++){
+                if ((_general::$RCresults[$i] == "true") && (_general::$resultsBoth[$i] == "true")){
+                    $successes++;
+                }
+            }
+        }
+
         _general::$html_output .= "$successes/$total";
         _general::$html_output .=
         "</h4>
@@ -605,22 +658,39 @@ and syntactical correctness of written code and prints out its XML reprezentatio
 
 
 
-/** MAIN */
-_general::$directory = getcwd(); # needs to be initialized, saves current working directory
+/*************************
+*          MAIN          *
+*************************/
 
+// directory needs to be initialized, saves current working directory
+_general::$directory = getcwd();
+// load arguments
 _general::load_args($argv, $argc);
-
+// load *.src file paths
 _general::load_testssrc();
-
+// run tests
 _general::run_tests();
 
-//_Auxiliary::writeout_loadargs_result();
-
+//print out results
 _general::print_result();
 fputs(STDOUT,_general::$html_output);
 fputs(STDOUT,"\n");
 
+
+
+
+//_Auxiliary::writeout_loadargs_result();
+
+/** CAN COME IN HANDY: automatically creates an html file and writes in the HTML5 output 
+ * - not sure if this can remain in the final script though (the task description states that the
+ *   resulting HTML5 output shall be printed to STDOUT but there's no word said of creating an HTML
+ *   file outright, probably since they'll be redirecting the output to their own HTML file anyway)
+ * - basically, I was too lazy to redirect the output and wrote an even more complicated and 
+ *   completely unnecessary solution to lessen the amount of text in my command line, fight me
+**/
+/* 
 $htmlout = fopen("output.html", "w");
 fwrite($htmlout, _general::$html_output);
 fclose($htmlout);
+*/
 ?>
